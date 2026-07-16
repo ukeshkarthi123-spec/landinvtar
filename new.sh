@@ -1,0 +1,2 @@
+eas secret:create --name EXPO_PUBLIC_SUPABASE_URL --value "https://sodzuknsemsqaiakevjp.supabase.co" --type string
+eas secret:create --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "YOUR_SUPABASE_ANON_KEY" --type string
