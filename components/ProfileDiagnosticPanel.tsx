@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform } from '
 import { Shield, Globe, Cpu, AlertTriangle, CheckCircle2 } from 'lucide-react-native';
 import NetInfo from '@react-native-community/netinfo';
 import { useTheme } from '@/context/ThemeContext';
-import { supabase } from '@/lib/supabase';
+import { getSupabaseRuntimeConfig, supabase } from '@/lib/supabase';
 
 export function ProfileDiagnosticPanel() {
   const { colors } = useTheme();
@@ -17,9 +17,10 @@ export function ProfileDiagnosticPanel() {
     return () => unsubscribe();
   }, []);
 
-  const config = {
-    URL: process.env.EXPO_PUBLIC_SUPABASE_URL ? '✅ Configured' : '❌ MISSING',
-    KEY: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ? '✅ Configured' : '❌ MISSING',
+  const config = getSupabaseRuntimeConfig();
+  const configStatus = {
+    URL: config.url ? '✅ Configured' : '❌ Missing',
+    KEY: config.anonKey ? '✅ Configured' : '❌ Missing',
     Platform: Platform.OS,
     Version: Platform.Version,
   };
@@ -47,9 +48,9 @@ export function ProfileDiagnosticPanel() {
 
       <ScrollView style={styles.content}>
         <Section title="Environment Variables" icon={<Cpu size={16} color={colors.emerald} />} colors={colors}>
-          <Row label="Supabase URL" value={config.URL} colors={colors} />
-          <Row label="Anon Key" value={config.KEY} colors={colors} />
-          {!process.env.EXPO_PUBLIC_SUPABASE_URL && (
+          <Row label="Supabase URL" value={configStatus.URL} colors={colors} />
+          <Row label="Anon Key" value={configStatus.KEY} colors={colors} />
+          {!config.url && (
             <Text style={styles.errorHint}>
               Note: EXPO_PUBLIC_ variables must be defined in your EAS Secrets or .env at build time.
             </Text>

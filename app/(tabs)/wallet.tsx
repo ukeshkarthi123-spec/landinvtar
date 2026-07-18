@@ -11,7 +11,7 @@ import {
 } from 'lucide-react-native';
 import { useTheme } from '@/context/ThemeContext';
 import { useApp } from '@/context/AppContext';
-import { supabase } from '@/lib/supabase';
+import { getSupabaseRuntimeConfig, supabase } from '@/lib/supabase';
 import { withTimeout } from '@/lib/api-utils';
 import type { WalletTransaction } from '@/types/database';
 import { router, useFocusEffect } from 'expo-router';
@@ -177,8 +177,10 @@ export default function WalletScreen() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) throw new Error('Not authenticated');
 
+    const { url: supabaseUrl } = getSupabaseRuntimeConfig();
+
     const response = await fetch(
-      `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/razorpay-payment`,
+      `${supabaseUrl}/functions/v1/razorpay-payment`,
       {
         method: 'POST',
         headers: {

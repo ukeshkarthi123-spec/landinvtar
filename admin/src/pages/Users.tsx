@@ -110,8 +110,15 @@ const Users = () => {
     setIsSubmitting(true);
     try {
       // 1. Create a non-persistent Supabase client to avoid signing out the current admin
-      const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
-      const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
+      // Using robust environment resolution
+      const env = import.meta.env;
+      const supabaseUrl = (env.VITE_SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL || env.EXPO_PUBLIC_SUPABASE_URL)?.trim();
+      const supabaseAnonKey = (env.VITE_SUPABASE_ANON_KEY || env.NEXT_PUBLIC_SUPABASE_ANON_KEY || env.EXPO_PUBLIC_SUPABASE_ANON_KEY)?.trim();
+
+      if (!supabaseUrl || !supabaseAnonKey) {
+        throw new Error('Supabase configuration is missing. Ensure your environment variables are correctly configured.');
+      }
+
       const tempClient = createClient(supabaseUrl, supabaseAnonKey, {
         auth: { persistSession: false }
       });

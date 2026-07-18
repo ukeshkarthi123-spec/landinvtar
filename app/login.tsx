@@ -2,15 +2,17 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Dimensions,
   TextInput, KeyboardAvoidingView, Platform, ScrollView,
-  Animated, ActivityIndicator,
+  Animated, ActivityIndicator, Alert
 } from 'react-native';
-import { createURL } from 'expo-linking';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
+import * as AuthSession from 'expo-auth-session';
 import { Mail, ChevronRight, Eye, EyeOff, ArrowLeft, AlertCircle, UserPlus } from 'lucide-react-native';
 
+// Standard requirement for AuthSession in Expo
 WebBrowser.maybeCompleteAuthSession();
+
 import { useTheme } from '@/context/ThemeContext';
 import { useApp } from '@/context/AppContext';
 import { supabase } from '@/lib/supabase';
@@ -22,7 +24,7 @@ type EmailTab = 'signin' | 'signup';
 
 export default function LoginScreen() {
   const { colors, isDark } = useTheme();
-  const { isAuthenticated, profile: appProfile } = useApp();
+  const { isAuthenticated, profile: appProfile, refreshProfile } = useApp();
   const [mode, setMode] = useState<AuthMode>('options');
   const [emailTab, setEmailTab] = useState<EmailTab>('signin');
   const [email, setEmail] = useState('');
@@ -41,6 +43,75 @@ export default function LoginScreen() {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   };
 
+  /**
+   * ROBUST GOOGLE SIGN IN FOR EXPO
+   */
+  const handleGoogleSignIn = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      // 1. Generate the redirect URI.
+      // For development builds/APKs, it uses the scheme from app.json ('myapp')
+      // For Expo Go, it uses a proxy URL or the exp:// address
+      const redirectTo = AuthSession.makeRedirectUri({
+        scheme: 'myapp',
+        path: 'login',
+      });
+
+      console.log('[Google Auth] Redirect URI:', redirectTo);
+
+      // 2. Start the Supabase OAuth flow.
+      const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo,
+          skipBrowserRedirect: true,
+        },
+      });
+
+      if (oauthError) throw oauthError;
+
+      if (data?.url) {
+        // 3. Open the browser to the Google Login page
+        // We pass redirectTo explicitly as the second argument.
+        // Some Expo versions on Android require this to be a non-null string.
+        const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+
+        if (result.type === 'success' && result.url) {
+          console.log('[Google Auth] Success, parsing result...');
+
+          const url = new URL(result.url.replace('#', '?'));
+          const params = new URLSearchParams(url.search);
+
+          const accessToken = params.get('access_token');
+          const refreshToken = params.get('refresh_token');
+          const code = params.get('code');
+
+          if (accessToken && refreshToken) {
+            const { error: sessionError } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            });
+            if (sessionError) throw sessionError;
+          } else if (code) {
+            const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+            if (exchangeError) throw exchangeError;
+          } else {
+            throw new Error('No tokens found in response.');
+          }
+
+          await refreshProfile();
+        }
+      }
+    } catch (err: any) {
+      console.error('[Google Auth] Error:', err);
+      setError(err.message || 'Google sign-in failed.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSignIn = async () => {
     if (!email.trim() || !password) {
       setError('Please enter your email and password.');
@@ -54,8 +125,6 @@ export default function LoginScreen() {
 
     setLoading(true);
     setError(null);
-    console.log('[Auth] Attempting sign in for:', email.trim().toLowerCase());
-    console.log('[Auth] Using Supabase URL:', process.env.EXPO_PUBLIC_SUPABASE_URL ? 'Configured' : 'MISSING');
 
     try {
       const { data, error: authError } = await supabase.auth.signInWithPassword({
@@ -64,68 +133,26 @@ export default function LoginScreen() {
       });
 
       if (authError) {
-        console.error('[Auth] Sign in error response:', JSON.stringify(authError, null, 2));
-        if (authError.message.includes('Invalid login credentials') || authError.status === 400) {
+        if (authError.message.includes('Invalid login credentials')) {
           setError('Invalid email or password.');
-        } else if (authError.message.includes('Network request failed')) {
-          setError('Network error: Please check your internet connection or ensure the server is reachable.');
         } else {
           setError(authError.message);
         }
         return;
       }
 
-      console.log('[Auth] Session created for user:', data.user?.id);
-
       if (data.session) {
-        const { data: factors, error: mfaError } = await supabase.auth.mfa.listFactors();
-        if (mfaError) console.error('[Auth] MFA list factors error:', mfaError);
-
+        const { data: factors } = await supabase.auth.mfa.listFactors();
         const verifiedFactor = factors?.all.find(f => f.factor_type === 'totp' && f.status === 'verified');
 
         if (verifiedFactor) {
-          console.log('[Auth] MFA required, factor ID:', verifiedFactor.id);
           setMfaFactorId(verifiedFactor.id);
           switchMode('mfa');
           return;
         }
       }
 
-      console.log('[Auth] Fetching user profile...');
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('role, is_admin')
-        .eq('id', data.user.id)
-        .maybeSingle();
-
-      if (profileError) console.error('[Auth] Profile fetch error:', profileError);
-
-      console.log('[Auth] Authentication successful');
-
-      // JIT Creation if missing on mobile too
-      let finalProfile = profile;
-      if (!profile && !profileError) {
-        const isAdminEmail = email.toLowerCase() === 'admin24@gmail.com';
-        const { data: newProfile } = await supabase
-          .from('profiles')
-          .upsert({
-            id: data.user.id,
-            email: data.user.email?.toLowerCase(),
-            name: data.user.user_metadata?.name || data.user.user_metadata?.full_name || email.split('@')[0],
-            role: isAdminEmail ? 'admin' : 'user',
-            is_admin: isAdminEmail
-          }, { onConflict: 'id' })
-          .select('role, is_admin')
-          .single();
-        finalProfile = newProfile;
-      }
-
-      const isAdmin = finalProfile?.role === 'admin' || finalProfile?.role === 'super_admin' || finalProfile?.is_admin;
-      if (isAdmin) {
-        router.replace('/admin');
-      } else {
-        router.replace('/(tabs)');
-      }
+      await refreshProfile();
     } catch (err: any) {
       console.error('Login: Sign in error:', err);
       setError('Something went wrong. Please try again.');
@@ -197,17 +224,11 @@ export default function LoginScreen() {
       });
 
       if (authError) {
-        if (authError.message.includes('User already registered') || authError.status === 400) {
-          setError('An account with this email already exists.');
-        } else {
-          setError(authError.message);
-        }
+        setError(authError.message);
         return;
       }
 
-      if (data.user && data.session) {
-        // Success
-      } else if (data.user) {
+      if (!data.session) {
         setInfo('Account created! Please check your email to confirm.');
         setEmailTab('signin');
       }
@@ -237,19 +258,7 @@ export default function LoginScreen() {
       });
 
       if (verifyError) throw verifyError;
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role, is_admin')
-        .eq('id', (await supabase.auth.getUser()).data.user?.id)
-        .maybeSingle();
-
-      const isAdmin = profile?.role === 'admin' || profile?.role === 'super_admin' || profile?.is_admin;
-      if (isAdmin) {
-        router.replace('/admin');
-      } else {
-        router.replace('/(tabs)');
-      }
+      await refreshProfile();
     } catch (err: any) {
       setError(err.message || 'Verification failed. Please try again.');
     } finally {
@@ -257,64 +266,10 @@ export default function LoginScreen() {
     }
   };
 
-  const handleGoogleSignIn = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const redirectTo = createURL('login');
-      const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo,
-          skipBrowserRedirect: true,
-        },
-      });
-
-      if (oauthError) throw oauthError;
-
-      if (data?.url) {
-        const res = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
-
-        if (res.type === 'success' && res.url) {
-          const queryString = res.url.includes('#') ? res.url.split('#')[1] : res.url.split('?')[1];
-          if (queryString) {
-            const params = queryString.split('&').reduce((acc: any, curr) => {
-              const [key, value] = curr.split('=');
-              if (key && value) acc[key] = value;
-              return acc;
-            }, {});
-
-            if (params.access_token && params.refresh_token) {
-              await supabase.auth.setSession({
-                access_token: params.access_token,
-                refresh_token: params.refresh_token,
-              });
-            }
-          }
-
-          const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-          if (sessionError) throw sessionError;
-
-          if (sessionData.session) {
-            router.replace('/(tabs)');
-          }
-        }
-      }
-    } catch (err) {
-      console.error('OAuth Error:', err);
-      setError(err instanceof Error ? err.message : 'Google sign-in failed.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
     if (isAuthenticated && appProfile) {
-      if (appProfile.is_admin || (appProfile as any).role === 'admin') {
-        router.replace('/admin');
-      } else {
-        router.replace('/(tabs)');
-      }
+      const isAdmin = appProfile.is_admin || (appProfile as any).role === 'admin';
+      router.replace(isAdmin ? '/admin' : '/(tabs)');
     }
   }, [isAuthenticated, appProfile]);
 
@@ -403,7 +358,7 @@ export default function LoginScreen() {
 
               <TouchableOpacity style={[dynamicStyles.socialBtn, loading && dynamicStyles.authBtnDisabled]} onPress={handleGoogleSignIn} disabled={loading}>
                 <View style={dynamicStyles.socialBtnInner}>
-                  <Text style={dynamicStyles.googleG}>G</Text>
+                  {loading ? <ActivityIndicator size="small" color={colors.emerald} /> : <Text style={dynamicStyles.googleG}>G</Text>}
                   <Text style={dynamicStyles.socialBtnText}>Continue with Google</Text>
                   <ChevronRight size={16} color={colors.textMuted} />
                 </View>
