@@ -7,6 +7,17 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
+const normalizeSupabaseUrl = (value?: string): string | undefined => {
+  const trimmedValue = value?.trim();
+  if (!trimmedValue) return undefined;
+
+  try {
+    return new URL(trimmedValue).origin;
+  } catch {
+    return trimmedValue.replace(/\/+$/, '').replace(/\/(?:auth|rest|storage|functions|realtime|graphql)(?:\/v1)?\/?$/i, '');
+  }
+};
+
 Deno.serve(async (req: Request) => {
   // Handle CORS
   if (req.method === "OPTIONS") {
@@ -17,8 +28,13 @@ Deno.serve(async (req: Request) => {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) throw new Error("Missing authorization header");
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseUrl = normalizeSupabaseUrl(Deno.env.get("SUPABASE_URL")) ?? "";
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+    if (!supabaseUrl) {
+      throw new Error("Missing SUPABASE_URL");
+    }
+
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const token = authHeader.replace("Bearer ", "");

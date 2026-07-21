@@ -30,7 +30,8 @@ import {
   PieChart as RePieChart,
   Pie
 } from 'recharts';
-import { reportService, ReportStats, ChartData } from '../services/reportService';
+import { reportService } from '../services/reportService';
+import type { ReportStats, ChartData } from '../services/reportService';
 import { exportService } from '../services/exportService';
 import clsx from 'clsx';
 

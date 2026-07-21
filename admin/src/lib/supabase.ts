@@ -1,49 +1,43 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-
-type SupabaseConfig = {
-  url: string;
-  anonKey: string;
-};
+import { createClient } from '@supabase/supabase-js';
 
 const getEnvVar = (key: string): string | undefined => {
   const env = import.meta.env as Record<string, string | boolean | undefined>;
 
-  const value = [
+  return [
     env[`VITE_${key}`],
     env[`NEXT_PUBLIC_${key}`],
     env[`EXPO_PUBLIC_${key}`],
     env[key],
-  ].find((candidate): candidate is string => typeof candidate === 'string' && candidate.trim().length > 0);
-
-  return value?.trim();
+  ].find((value): value is string => typeof value === 'string' && value.trim().length > 0);
 };
 
-export const getSupabaseRuntimeConfig = (): SupabaseConfig => ({
-  url: getEnvVar('SUPABASE_URL')?.trim() || '',
-  anonKey: getEnvVar('SUPABASE_ANON_KEY')?.trim() || '',
-});
+const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || getEnvVar('SUPABASE_ANON_KEY'))?.trim();
 
-const validateSupabaseConfig = (): SupabaseConfig => {
-  const { url, anonKey } = getSupabaseRuntimeConfig();
+if (!supabaseAnonKey) {
+  const errorMsg = `
+Supabase configuration error in Admin Panel:
+Missing environment variables.
+Anon Key: MISSING
 
-  if (!url || !anonKey) {
-    throw new Error('Missing EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY');
+Ensure VITE_SUPABASE_ANON_KEY is set.
+  `.trim();
+
+  console.error('[Supabase Admin]', errorMsg);
+
+  if (typeof document !== 'undefined') {
+    const root = document.getElementById('root');
+    if (root) {
+      root.innerHTML = `<div style="padding: 2rem; color: red; font-family: sans-serif;"><h2>Configuration Error</h2><pre style="background: #fee; padding: 1rem; border-radius: 8px;">${errorMsg}</pre></div>`;
+    }
   }
 
-  return { url, anonKey };
-};
+  throw new Error(errorMsg);
+}
 
-let supabaseClient: SupabaseClient | null = null;
+const supabase = createClient(
+  'https://sodzuknsemsqaiakevjp.supabase.co',
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+);
 
-export const getSupabaseClient = () => {
-  if (!supabaseClient) {
-    const { url, anonKey } = validateSupabaseConfig();
-    supabaseClient = createClient(url, anonKey);
-  }
-
-  return supabaseClient;
-};
-
-export const supabase = getSupabaseClient();
-
+export { supabase };
 export default supabase;

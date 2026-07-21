@@ -1,14 +1,35 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
 import 'react-native-url-polyfill/auto';
 
-type SupabaseConfig = {
-  url: string;
-  anonKey: string;
+const resolveSupabaseUrl = (value?: string): string | undefined => {
+  const trimmedValue = value?.trim();
+  if (!trimmedValue) return undefined;
+
+  try {
+    return new URL(trimmedValue).origin;
+  } catch {
+    return trimmedValue;
+  }
 };
 
+/**
+ * Supabase configuration utility
+ *
+ * IMPORTANT: Expo requires static access to process.env.EXPO_PUBLIC_*
+ * variables for them to be correctly injected during build time.
+ * Dynamic access like process.env[key] will often return undefined in
+ * mobile environments.
+ */
+
+// 1. Static extraction of primary Expo environment variables
+// These MUST be written as full literals for static replacement
+const EXPO_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
+const EXPO_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+
+// 2. Robust fallback mechanism for other platforms (Vercel, Vite, EAS)
 const getEnvVar = (key: string): string | undefined => {
   const expoKey = `EXPO_PUBLIC_${key}`;
   const viteKey = `VITE_${key}`;
@@ -21,9 +42,7 @@ const getEnvVar = (key: string): string | undefined => {
     process.env[key],
   ].find((value): value is string => typeof value === 'string' && value.trim().length > 0);
 
-  if (processValue) {
-    return processValue.trim();
-  }
+  if (processValue) return processValue.trim();
 
   const extraConfig = Constants.expoConfig?.extra as Record<string, unknown> | undefined;
   const extraValue = [
@@ -36,58 +55,39 @@ const getEnvVar = (key: string): string | undefined => {
   return extraValue?.trim();
 };
 
-export const getSupabaseRuntimeConfig = (): SupabaseConfig => ({
-  url: getEnvVar('SUPABASE_URL')?.trim() || '',
-  anonKey: getEnvVar('SUPABASE_ANON_KEY')?.trim() || '',
-});
+// 3. Final resolution logic
+const supabaseUrl = resolveSupabaseUrl(EXPO_URL || getEnvVar('SUPABASE_URL'));
+const supabaseAnonKey = (EXPO_KEY || getEnvVar('SUPABASE_ANON_KEY'))?.trim();
 
-const validateSupabaseConfig = (): SupabaseConfig => {
-  const { url, anonKey } = getSupabaseRuntimeConfig();
+if (!supabaseUrl || !supabaseAnonKey) {
+  const errorMsg = `
+CRITICAL CONFIGURATION ERROR:
+Missing Supabase environment variables:
+URL: ${supabaseUrl ? 'OK' : 'MISSING'}
+Anon Key: ${supabaseAnonKey ? 'OK' : 'MISSING'}
 
-  if (!url || !anonKey) {
-    throw new Error('Missing EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY');
+Ensure EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY are set correctly.
+  `.trim();
+
+  if (__DEV__) {
+    console.error(errorMsg);
   }
 
-  return { url, anonKey };
-};
-
-let supabaseClient: SupabaseClient | null = null;
-
-export const getSupabaseClient = () => {
-  if (!supabaseClient) {
-    const { url, anonKey } = validateSupabaseConfig();
-    supabaseClient = createClient(url, anonKey, {
-      auth: {
-        storage: AsyncStorage,
-        autoRefreshToken: true,
-        persistSession: true,
-      },
-    });
-  }
-
-  return supabaseClient;
-};
-
-export const getSupabaseUrl = () => validateSupabaseConfig().url;
-export const getSupabaseAnonKey = () => validateSupabaseConfig().anonKey;
-
-if (__DEV__) {
-  const { url, anonKey } = getSupabaseRuntimeConfig();
-  console.log('[Supabase Config] Platform:', Platform.OS);
-  console.log('[Supabase Config] URL Loaded:', url ? '✅ Yes' : '❌ No');
-  console.log('[Supabase Config] Key Loaded:', anonKey ? '✅ Yes' : '❌ No');
+  throw new Error(errorMsg);
 }
 
-export const supabase = getSupabaseClient();
+if (__DEV__) {
+  console.log('[Supabase] Initializing client...');
+  console.log('[Supabase] URL:', supabaseUrl);
+}
 
-export const signInWithGoogle = async (redirectUri?: string) => {
-  return getSupabaseClient().auth.signInWithOAuth({
-    provider: 'google',
-    options: {
-      redirectTo: redirectUri,
-      skipBrowserRedirect: true,
-    },
-  });
-};
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    storage: AsyncStorage,
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: Platform.OS === 'web',
+  },
+});
 
 export default supabase;

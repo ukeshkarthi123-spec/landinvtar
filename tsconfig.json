@@ -2,18 +2,27 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
-    "types": ["vite/client"],
+    "types": [
+      "vite/client"
+    ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": [
+        "./*"
+      ]
     }
   },
   "include": [
-    "**/*.ts",
-    "**/*.tsx",
-    ".expo/types/**/*.ts",
-    "expo-env.d.ts"
+    "app",
+    "components",
+    "context",
+    "hooks",
+    "lib",
+    "types",
+    "expo-env.d.ts",
+    ".expo/types/**/*.ts"
   ],
   "exclude": [
-    "supabase/functions"
+    "supabase/functions",
+    "admin"
   ]
 }
