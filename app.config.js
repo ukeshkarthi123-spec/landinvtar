@@ -1,7 +1,24 @@
+const fs = require('fs');
 const path = require('path');
 
-require('dotenv').config({ path: path.resolve(__dirname, '.env') });
-require('dotenv').config({ path: path.resolve(__dirname, '.env.local'), override: true });
+let dotenv;
+try {
+  dotenv = require('dotenv');
+} catch {
+  dotenv = null;
+}
+
+const loadEnvFile = (fileName) => {
+  if (!dotenv) return;
+
+  const envPath = path.resolve(__dirname, fileName);
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath });
+  }
+};
+
+loadEnvFile('.env');
+loadEnvFile('.env.local');
 
 const appJson = require('./app.json');
 
@@ -10,6 +27,17 @@ const appJson = require('./app.json');
  * This file allows us to inject environment variables into the app
  * using Constants.expoConfig.extra.
  */
+const normalizeSupabaseUrl = (value) => {
+  const trimmedValue = value?.trim();
+  if (!trimmedValue) return '';
+
+  try {
+    return new URL(trimmedValue).origin;
+  } catch {
+    return trimmedValue.replace(/\/+$/, '').replace(/\/(?:auth|rest|storage|functions|realtime|graphql)(?:\/v1)?\/?$/i, '');
+  }
+};
+
 const getSupabaseValue = (key) => {
   return [
     process.env[key],
@@ -20,19 +48,11 @@ const getSupabaseValue = (key) => {
 };
 
 const getSupabaseUrl = () => {
-  const value = getSupabaseValue('SUPABASE_URL')?.trim();
-  if (!value) {
-    throw new Error('Missing EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY');
-  }
-  return value;
+  return normalizeSupabaseUrl(getSupabaseValue('SUPABASE_URL'));
 };
 
 const getSupabaseAnonKey = () => {
-  const value = getSupabaseValue('SUPABASE_ANON_KEY')?.trim();
-  if (!value) {
-    throw new Error('Missing EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY');
-  }
-  return value;
+  return getSupabaseValue('SUPABASE_ANON_KEY')?.trim() || '';
 };
 
 module.exports = {

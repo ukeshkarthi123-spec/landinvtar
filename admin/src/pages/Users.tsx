@@ -16,7 +16,7 @@ import {
   ShieldCheck,
   Loader2
 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { getSupabaseClient, supabase } from '../lib/supabase';
 import { createClient } from '@supabase/supabase-js';
 
 // --- TYPES ---
@@ -110,14 +110,9 @@ const Users = () => {
     setIsSubmitting(true);
     try {
       // 1. Create a non-persistent Supabase client to avoid signing out the current admin
-      // Using robust environment resolution
-      const env = import.meta.env;
-      const supabaseUrl = (env.VITE_SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL || env.EXPO_PUBLIC_SUPABASE_URL)?.trim();
-      const supabaseAnonKey = (env.VITE_SUPABASE_ANON_KEY || env.NEXT_PUBLIC_SUPABASE_ANON_KEY || env.EXPO_PUBLIC_SUPABASE_ANON_KEY)?.trim();
-
-      if (!supabaseUrl || !supabaseAnonKey) {
-        throw new Error('Supabase configuration is missing. Ensure your environment variables are correctly configured.');
-      }
+      // We use the existing client's URL and Key from the validated instance
+      const supabaseUrl = supabase.supabaseUrl;
+      const supabaseAnonKey = supabase.supabaseKey;
 
       const tempClient = createClient(supabaseUrl, supabaseAnonKey, {
         auth: { persistSession: false }
