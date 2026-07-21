@@ -1,6 +1,6 @@
 {
-  "installCommand": "echo 'Skipping root install — handled in buildCommand'",
-  "buildCommand": "cd admin && npm install && npm run build",
-  "outputDirectory": "admin/dist",
-  "framework": "vite"
+  "installCommand": "npm install --legacy-peer-deps",
+  "buildCommand": "npx expo export -p web",
+  "outputDirectory": "dist",
+  "framework": null
 }
