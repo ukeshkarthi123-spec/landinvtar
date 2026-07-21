@@ -1,6 +1,0 @@
-{
-  "installCommand": "echo 'Skipping root install — handled in buildCommand'",
-  "buildCommand": "cd admin && npm install && npm run build",
-  "outputDirectory": "admin/dist",
-  "framework": "vite"
-}
