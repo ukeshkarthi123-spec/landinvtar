@@ -10,6 +10,10 @@ import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
 import { Mail, ChevronRight, Eye, EyeOff, ArrowLeft, AlertCircle, UserPlus } from 'lucide-react-native';
 
+import * as Constants from 'expo-constants';
+
+// ... (existing imports)
+
 // Standard requirement for AuthSession in Expo
 WebBrowser.maybeCompleteAuthSession();
 
@@ -105,87 +109,59 @@ export default function LoginScreen() {
     }
     try {
       if (Platform.OS === 'web') {
-        // On web there's no native app to catch a custom-scheme redirect,
-        // so let Supabase do a normal full-page redirect. supabase-js
-        // automatically picks up the session from the URL on reload
-        // (detectSessionInUrl defaults to true), so nothing else to do here
-        // — the auth listener elsewhere in the app (or the effect below)
-        // will pick up the session once the browser comes back.
         const { error: webSignInError } = await supabase.auth.signInWithOAuth({
           provider: 'google',
           options: {
             redirectTo: window.location.origin + '/login',
           },
         });
-        if (webSignInError) {
-          throw webSignInError;
-        }
+        if (webSignInError) throw webSignInError;
         return;
       }
 
+      // For Native (Android/iOS)
+      const scheme = 'myapp';
       const redirectTo = AuthSession.makeRedirectUri({
-        scheme: 'myapp',
+        scheme,
         path: 'login',
       });
-      const {
-        data,
-        error: signInError,
-      } = await supabase.auth.signInWithOAuth({
+
+      const { data, error: signInError } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo,
           skipBrowserRedirect: true,
         },
       });
-      if (signInError) {
-        throw signInError;
-      }
-      if (!data?.url) {
-        throw new Error('Google OAuth URL was not returned.');
-      }
-      const result = await WebBrowser.openAuthSessionAsync(
-        data.url,
-        redirectTo
-      );
-      if (result.type !== 'success' || !result.url) {
-        return;
-      }
 
-      const accessToken = getQueryParam(result.url, 'access_token');
-      const refreshToken = getQueryParam(result.url, 'refresh_token');
-      const code = getQueryParam(result.url, 'code');
+      if (signInError) throw signInError;
+      if (!data?.url) throw new Error('Google OAuth URL was not returned.');
 
-      if (accessToken && refreshToken) {
-        const { error: setSessionError } = await supabase.auth.setSession({
-          access_token: accessToken,
-          refresh_token: refreshToken,
-        });
-        if (setSessionError) {
-          throw setSessionError;
+      // Open the browser and wait for the redirect back to the app
+      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+
+      if (result.type === 'success' && result.url) {
+        const accessToken = getQueryParam(result.url, 'access_token');
+        const refreshToken = getQueryParam(result.url, 'refresh_token');
+        const code = getQueryParam(result.url, 'code');
+
+        if (accessToken && refreshToken) {
+          const { error: setSessionError } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (setSessionError) throw setSessionError;
+        } else if (code) {
+          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+          if (exchangeError) throw exchangeError;
         }
-      } else if (code) {
-        const { error: exchangeError } =
-          await supabase.auth.exchangeCodeForSession(code);
-        if (exchangeError) {
-          throw exchangeError;
+
+        if (isMounted.current) {
+          await refreshProfile();
         }
-      } else {
-        throw new Error('Authorization code not found.');
-      }
-      const {
-        data: { session },
-        error: sessionError,
-      } = await supabase.auth.getSession();
-      if (sessionError) {
-        throw sessionError;
-      }
-      if (!session) {
-        throw new Error('No active Supabase session.');
-      }
-      if (isMounted.current) {
-        await refreshProfile();
       }
     } catch (err: any) {
+      console.error('[Google Sign-In Error]', err);
       if (isMounted.current) {
         setError(err?.message ?? 'Google sign-in failed.');
       }

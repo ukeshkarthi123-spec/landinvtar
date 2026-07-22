@@ -9,7 +9,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "@expo/metro-runtime": "~4.0.0",
@@ -21,6 +23,7 @@
     "@react-navigation/bottom-tabs": "^7.0.0",
     "@react-navigation/native": "^7.0.0",
     "@supabase/supabase-js": "^2.46.1",
+    "clsx": "^2.1.0",
     "dotenv": "^16.4.5",
     "expo": "~52.0.25",
     "expo-asset": "~11.0.1",
@@ -29,6 +32,7 @@
     "expo-camera": "~16.0.10",
     "expo-clipboard": "~7.0.0",
     "expo-constants": "~17.0.3",
+    "expo-crypto": "~14.0.2",
     "expo-device": "~7.0.1",
     "expo-font": "~13.0.1",
     "expo-haptics": "~14.0.0",
@@ -45,9 +49,11 @@
     "expo-symbols": "~0.2.0",
     "expo-system-ui": "~4.0.6",
     "expo-web-browser": "~14.0.2",
+    "lucide-react": "^0.540.0",
     "lucide-react-native": "^0.460.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
+    "react-hook-form": "^7.51.0",
     "react-native": "0.76.9",
     "react-native-gesture-handler": "~2.20.2",
     "react-native-qrcode-svg": "^6.3.12",
@@ -59,9 +65,6 @@
     "react-native-url-polyfill": "^2.0.0",
     "react-native-web": "~0.19.13",
     "react-native-webview": "13.12.5",
-    "clsx": "^2.1.0",
-    "lucide-react": "^0.540.0",
-    "react-hook-form": "^7.51.0",
     "react-router-dom": "^6.22.3",
     "recharts": "^2.12.2",
     "tailwind-merge": "^2.2.1"
