@@ -7,16 +7,13 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "dev": "cross-env EXPO_NO_TELEMETRY=1 expo start",
-    "build:web": "expo export --platform web",
-    "lint": "expo lint",
-    "typecheck": "tsc --noEmit",
-    "android": "expo run:android",
-    "ios": "expo run:ios"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   },
   "dependencies": {
     "@expo/metro-runtime": "~4.0.0",
-    "@expo/vector-icons": "^14.0.2",
+    "@expo/vector-icons": "~14.0.4",
     "@lucide/lab": "^0.1.2",
     "@opentelemetry/api": "^1.9.1",
     "@react-native-async-storage/async-storage": "1.23.1",
@@ -51,18 +48,23 @@
     "lucide-react-native": "^0.460.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
-    "react-native": "0.76.6",
+    "react-native": "0.76.9",
     "react-native-gesture-handler": "~2.20.2",
     "react-native-qrcode-svg": "^6.3.12",
     "react-native-razorpay": "^3.0.0",
     "react-native-reanimated": "~3.16.1",
     "react-native-safe-area-context": "4.12.0",
-    "react-native-screens": "~4.1.0",
+    "react-native-screens": "~4.4.0",
     "react-native-svg": "15.8.0",
     "react-native-url-polyfill": "^2.0.0",
     "react-native-web": "~0.19.13",
     "react-native-webview": "13.12.5",
-    "react-native-worklets": "0.5.1"
+    "clsx": "^2.1.0",
+    "lucide-react": "^0.540.0",
+    "react-hook-form": "^7.51.0",
+    "react-router-dom": "^6.22.3",
+    "recharts": "^2.12.2",
+    "tailwind-merge": "^2.2.1"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
@@ -71,6 +73,10 @@
     "babel-preset-expo": "~12.0.0",
     "cross-env": "^10.1.0",
     "typescript": "~5.3.3",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.18",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1"
   }
 }

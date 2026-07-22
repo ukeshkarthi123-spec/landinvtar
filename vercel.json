@@ -3,8 +3,4 @@
   "buildCommand": "npx expo export -p web",
   "outputDirectory": "dist",
   "framework": null
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 30a757f7cd5b60a92212e9e99ef75cda4cc01661

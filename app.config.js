@@ -1,70 +1,35 @@
-const fs = require('fs');
-const path = require('path');
+/**
+ * Expo Configuration for SDK 54
+ *
+ * This file handles environment variable injection into the native bundle via 'extra'.
+ */
 
-let dotenv;
+// Load .env files for use within this config file
 try {
-  dotenv = require('dotenv');
-} catch {
-  dotenv = null;
+  require('dotenv').config();
+} catch (e) {
+  // dotenv is optional in some build environments
 }
 
-const loadEnvFile = (fileName) => {
-  if (!dotenv) return;
+module.exports = ({ config }) => {
+  const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+  const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
+  const googleWebClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || '';
+  const googleAndroidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || '';
+  const googleIosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || '';
 
-  const envPath = path.resolve(__dirname, fileName);
-  if (fs.existsSync(envPath)) {
-    dotenv.config({ path: envPath });
-  }
+  return {
+    ...config,
+    extra: {
+      ...config.extra,
+      EXPO_PUBLIC_SUPABASE_URL: supabaseUrl,
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: supabaseAnonKey,
+      EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: googleWebClientId,
+      EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID: googleAndroidClientId,
+      EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID: googleIosClientId,
+      eas: {
+        projectId: "61496cb4-5282-456f-9633-f7db5b1dca3d"
+      }
+    },
+  };
 };
-
-loadEnvFile('.env');
-loadEnvFile('.env.local');
-
-const appJson = require('./app.json');
-
-/**
- * Dynamics configuration for Expo.
- * This file allows us to inject environment variables into the app
- * using Constants.expoConfig.extra.
- */
-const normalizeSupabaseUrl = (value) => {
-  const trimmedValue = value?.trim();
-  if (!trimmedValue) return '';
-
-  try {
-    return new URL(trimmedValue).origin;
-  } catch {
-    return trimmedValue.replace(/\/+$/, '').replace(/\/(?:auth|rest|storage|functions|realtime|graphql)(?:\/v1)?\/?$/i, '');
-  }
-};
-
-const getSupabaseValue = (key) => {
-  return [
-    process.env[key],
-    process.env[`EXPO_PUBLIC_${key}`],
-    process.env[`VITE_${key}`],
-    process.env[`NEXT_PUBLIC_${key}`],
-  ].find((value) => typeof value === 'string' && value.trim().length > 0);
-};
-
-const getSupabaseUrl = () => {
-  return normalizeSupabaseUrl(getSupabaseValue('SUPABASE_URL'));
-};
-
-const getSupabaseAnonKey = () => {
-  return getSupabaseValue('SUPABASE_ANON_KEY')?.trim() || '';
-};
-
-module.exports = {
-  ...appJson.expo,
-  extra: {
-    ...(appJson.expo.extra || {}),
-    EXPO_PUBLIC_SUPABASE_URL: getSupabaseUrl(),
-    EXPO_PUBLIC_SUPABASE_ANON_KEY: getSupabaseAnonKey(),
-    VITE_SUPABASE_URL: getSupabaseUrl(),
-    VITE_SUPABASE_ANON_KEY: getSupabaseAnonKey(),
-    NEXT_PUBLIC_SUPABASE_URL: getSupabaseUrl(),
-    NEXT_PUBLIC_SUPABASE_ANON_KEY: getSupabaseAnonKey(),
-  },
-};
-

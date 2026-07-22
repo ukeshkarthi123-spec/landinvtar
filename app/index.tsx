@@ -15,17 +15,8 @@ export default function SplashScreen() {
   const { isLocked, authenticate } = useBiometrics();
   const [hasRedirected, setHasRedirected] = useState(false);
   const redirectionStarted = useRef(false);
+  const isMounted = useRef(true);
   const navigationState = useRootNavigationState();
-  const lastLoggedState = useRef<string>('');
-
-  // Diagnostic logging - throttled to only log when state actually changes
-  useEffect(() => {
-    const currentState = JSON.stringify({ loading, isLocked, isAuthenticated, profileLoaded: !!profile, navReady: !!navigationState?.key });
-    if (lastLoggedState.current !== currentState) {
-      console.log('[Splash] State Change:', currentState);
-      lastLoggedState.current = currentState;
-    }
-  });
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
@@ -34,7 +25,7 @@ export default function SplashScreen() {
   const ringOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    console.log('[Splash] Starting animations');
+    isMounted.current = true;
     Animated.sequence([
       Animated.parallel([
         Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
@@ -44,51 +35,59 @@ export default function SplashScreen() {
       ]),
       Animated.timing(tagFade, { toValue: 1, duration: 500, delay: 100, useNativeDriver: true }),
     ]).start();
+
+    return () => {
+      isMounted.current = false;
+    };
   }, []);
 
   useEffect(() => {
-    // 1. Navigation Guard
-    if (loading || hasRedirected || redirectionStarted.current || !navigationState?.key) {
-      return;
-    }
-
-    // 2. Lock Guard
-    if (isLocked) {
+    // 1. Guards
+    if (loading || hasRedirected || redirectionStarted.current || !navigationState?.key || isLocked) {
       return;
     }
 
     const performRedirect = async () => {
       redirectionStarted.current = true;
+
+      // Delay for splash animation
       await new Promise(resolve => setTimeout(resolve, 1500));
 
+      if (!isMounted.current) return;
+
       try {
-        // 3. Maintenance Check
+        // Check Maintenance
         const { data: config } = await supabase.from('app_settings').select('maintenance_mode, maintenance_message').limit(1).maybeSingle();
+
+        if (!isMounted.current) return;
+
         if (config?.maintenance_mode && !profile?.is_admin) {
-          Alert.alert('System Maintenance', config.maintenance_message || 'The system is currently undergoing maintenance.');
-          redirectionStarted.current = false; // Allow retry on next splash tap
+          Alert.alert('System Maintenance', config.maintenance_message || 'Undergoing maintenance.');
+          redirectionStarted.current = false;
           return;
         }
 
         const onboardingCompleted = await AsyncStorage.getItem('onboarding_completed');
 
+        if (!isMounted.current) return;
+
         if (onboardingCompleted !== 'true') {
-          console.log('[Splash] -> Onboarding');
           router.replace('/onboarding');
         } else if (isAuthenticated) {
           const isAdmin = profile?.is_admin || (profile as any)?.role === 'admin';
-          const target = isAdmin ? '/admin' : '/(tabs)';
-          console.log('[Splash] -> Authenticated:', target);
-          router.replace(target as any);
+          router.replace(isAdmin ? '/admin' : '/(tabs)');
         } else {
-          console.log('[Splash] -> Login');
           router.replace('/login');
         }
-        setHasRedirected(true);
+
+        if (isMounted.current) {
+          setHasRedirected(true);
+        }
       } catch (err) {
-        console.error('[Splash] Navigation failed:', err);
-        router.replace('/login');
-        setHasRedirected(true);
+        if (isMounted.current) {
+          router.replace('/login');
+          setHasRedirected(true);
+        }
       }
     };
 

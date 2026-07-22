@@ -7,7 +7,7 @@
     "icon": "./assets/images/icon.png",
     "scheme": "myapp",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "ios": {
       "supportsTablet": true
     },
@@ -16,10 +16,15 @@
       "versionCode": 6,
       "permissions": [
         "INTERNET",
+        "ACCESS_NETWORK_STATE",
         "CAMERA",
+        "READ_MEDIA_IMAGES",
+        "READ_MEDIA_VIDEO",
+        "POST_NOTIFICATIONS",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
-        "READ_MEDIA_IMAGES",
         "USE_BIOMETRIC",
         "USE_FINGERPRINT"
       ]

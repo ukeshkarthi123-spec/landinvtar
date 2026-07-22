@@ -4,81 +4,51 @@ import { createClient } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
 import 'react-native-url-polyfill/auto';
 
-const resolveSupabaseUrl = (value?: string): string | undefined => {
-  const trimmedValue = value?.trim();
-  if (!trimmedValue) return undefined;
-
-  try {
-    return new URL(trimmedValue).origin;
-  } catch {
-    return trimmedValue;
-  }
-};
-
 /**
- * Supabase configuration utility
+ * Supabase configuration utility for Expo SDK 54+
  *
- * IMPORTANT: Expo requires static access to process.env.EXPO_PUBLIC_*
- * variables for them to be correctly injected during build time.
- * Dynamic access like process.env[key] will often return undefined in
- * mobile environments.
+ * IMPORTANT: We MUST use static property access for process.env.EXPO_PUBLIC_*
+ * variables to ensure they are correctly inlined by the Expo build pipeline.
  */
 
-// 1. Static extraction of primary Expo environment variables
-// These MUST be written as full literals for static replacement
+// 1. Static access (Primary method for Expo)
 const EXPO_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
-const EXPO_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+const EXPO_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
-// 2. Robust fallback mechanism for other platforms (Vercel, Vite, EAS)
-const getEnvVar = (key: string): string | undefined => {
-  const expoKey = `EXPO_PUBLIC_${key}`;
-  const viteKey = `VITE_${key}`;
-  const nextKey = `NEXT_PUBLIC_${key}`;
+// 2. Constants fallback (Primary method for EAS Build / Expo Go if process.env fails)
+const extra = Constants.expoConfig?.extra || {};
+const CONSTANTS_URL = extra.EXPO_PUBLIC_SUPABASE_URL || extra.VITE_SUPABASE_URL;
+const CONSTANTS_KEY = extra.EXPO_PUBLIC_SUPABASE_ANON_KEY || extra.VITE_SUPABASE_ANON_KEY;
 
-  const processValue = [
-    process.env[expoKey],
-    process.env[viteKey],
-    process.env[nextKey],
-    process.env[key],
-  ].find((value): value is string => typeof value === 'string' && value.trim().length > 0);
+// 3. Final resolution with validation
+const supabaseUrl = (EXPO_URL || CONSTANTS_URL || '').trim();
+const supabaseAnonKey = (EXPO_ANON_KEY || CONSTANTS_KEY || '').trim();
 
-  if (processValue) return processValue.trim();
-
-  const extraConfig = Constants.expoConfig?.extra as Record<string, unknown> | undefined;
-  const extraValue = [
-    extraConfig?.[expoKey],
-    extraConfig?.[viteKey],
-    extraConfig?.[nextKey],
-    extraConfig?.[key],
-  ].find((value): value is string => typeof value === 'string' && value.trim().length > 0);
-
-  return extraValue?.trim();
-};
-
-// 3. Final resolution logic
-const supabaseUrl = resolveSupabaseUrl(EXPO_URL || getEnvVar('SUPABASE_URL'));
-const supabaseAnonKey = (EXPO_KEY || getEnvVar('SUPABASE_ANON_KEY'))?.trim();
+export const getSupabaseRuntimeConfig = () => ({
+  url: supabaseUrl,
+  anonKey: supabaseAnonKey,
+});
 
 if (!supabaseUrl || !supabaseAnonKey) {
+  const missing = [];
+  if (!supabaseUrl) missing.push('EXPO_PUBLIC_SUPABASE_URL');
+  if (!supabaseAnonKey) missing.push('EXPO_PUBLIC_SUPABASE_ANON_KEY');
+
   const errorMsg = `
 CRITICAL CONFIGURATION ERROR:
-Missing Supabase environment variables:
-URL: ${supabaseUrl ? 'OK' : 'MISSING'}
-Anon Key: ${supabaseAnonKey ? 'OK' : 'MISSING'}
+Missing environment variables: ${missing.join(', ')}
 
-Ensure EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY are set correctly.
+[Context]
+Platform: ${Platform.OS}
+EXPO_URL: ${EXPO_URL ? 'PRESENT' : 'MISSING'}
+CONSTANTS_URL: ${CONSTANTS_URL ? 'PRESENT' : 'MISSING'}
+
+Ensure your .env file exists and variables are prefixed with EXPO_PUBLIC_.
   `.trim();
 
   if (__DEV__) {
     console.error(errorMsg);
   }
-
-  throw new Error(errorMsg);
-}
-
-if (__DEV__) {
-  console.log('[Supabase] Initializing client...');
-  console.log('[Supabase] URL:', supabaseUrl);
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Dimensions,
   TextInput, KeyboardAvoidingView, Platform, ScrollView,
@@ -19,12 +19,21 @@ import { supabase } from '@/lib/supabase';
 
 const { width } = Dimensions.get('window');
 
+// React Native (Hermes) doesn't reliably support the global URL/URLSearchParams
+// APIs, so we extract query/hash params with a small regex helper instead.
+function getQueryParam(url: string, key: string): string | null {
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`[?#&]${escapedKey}=([^&]*)`);
+  const match = url.match(pattern);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 type AuthMode = 'options' | 'email' | 'forgot' | 'mfa';
 type EmailTab = 'signin' | 'signup';
 
 export default function LoginScreen() {
   const { colors, isDark } = useTheme();
-  const { isAuthenticated, profile: appProfile, refreshProfile } = useApp();
+  const { isAuthenticated, profile, refreshProfile } = useApp();
   const [mode, setMode] = useState<AuthMode>('options');
   const [emailTab, setEmailTab] = useState<EmailTab>('signin');
   const [email, setEmail] = useState('');
@@ -37,78 +46,151 @@ export default function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const fadeAnim = useRef(new Animated.Value(1)).current;
-  const modeChangeId = useRef(0);
+  const isMounted = useRef(true);
 
-  const validateEmail = (email: string) => {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-  };
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
 
-  /**
-   * ROBUST GOOGLE SIGN IN FOR EXPO
-   */
+  const safeSetLoading = useCallback((val: boolean) => {
+    if (isMounted.current) setLoading(val);
+  }, []);
+
+  // After a web OAuth redirect, Supabase auto-parses the session from the
+  // URL on load (detectSessionInUrl). Pick that session up here and refresh
+  // the profile so the isAuthenticated/profile effect below can navigate.
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+
+    const checkRedirectSession = async () => {
+      const hasAuthParams =
+        window.location.hash.includes('access_token') ||
+        window.location.search.includes('code=') ||
+        window.location.hash.includes('code=');
+      if (!hasAuthParams) return;
+
+      safeSetLoading(true);
+      try {
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession();
+        if (sessionError) {
+          throw sessionError;
+        }
+        if (session && isMounted.current) {
+          await refreshProfile();
+        } else if (isMounted.current) {
+          setError('Sign-in did not complete. Please try again.');
+        }
+      } catch (err: any) {
+        if (isMounted.current) {
+          setError(err?.message ?? 'Google sign-in failed.');
+        }
+      } finally {
+        safeSetLoading(false);
+      }
+    };
+
+    checkRedirectSession();
+  }, [refreshProfile, safeSetLoading]);
+
   const handleGoogleSignIn = async () => {
-    setLoading(true);
-    setError(null);
-
+    safeSetLoading(true);
+    if (isMounted.current) {
+      setError(null);
+    }
     try {
-      // 1. Generate the redirect URI.
-      // For development builds/APKs, it uses the scheme from app.json ('myapp')
-      // For Expo Go, it uses a proxy URL or the exp:// address
+      if (Platform.OS === 'web') {
+        // On web there's no native app to catch a custom-scheme redirect,
+        // so let Supabase do a normal full-page redirect. supabase-js
+        // automatically picks up the session from the URL on reload
+        // (detectSessionInUrl defaults to true), so nothing else to do here
+        // — the auth listener elsewhere in the app (or the effect below)
+        // will pick up the session once the browser comes back.
+        const { error: webSignInError } = await supabase.auth.signInWithOAuth({
+          provider: 'google',
+          options: {
+            redirectTo: window.location.origin + '/login',
+          },
+        });
+        if (webSignInError) {
+          throw webSignInError;
+        }
+        return;
+      }
+
       const redirectTo = AuthSession.makeRedirectUri({
         scheme: 'myapp',
         path: 'login',
       });
-
-      console.log('[Google Auth] Redirect URI:', redirectTo);
-
-      // 2. Start the Supabase OAuth flow.
-      const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
+      const {
+        data,
+        error: signInError,
+      } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo,
           skipBrowserRedirect: true,
         },
       });
+      if (signInError) {
+        throw signInError;
+      }
+      if (!data?.url) {
+        throw new Error('Google OAuth URL was not returned.');
+      }
+      const result = await WebBrowser.openAuthSessionAsync(
+        data.url,
+        redirectTo
+      );
+      if (result.type !== 'success' || !result.url) {
+        return;
+      }
 
-      if (oauthError) throw oauthError;
+      const accessToken = getQueryParam(result.url, 'access_token');
+      const refreshToken = getQueryParam(result.url, 'refresh_token');
+      const code = getQueryParam(result.url, 'code');
 
-      if (data?.url) {
-        // 3. Open the browser to the Google Login page
-        // We pass redirectTo explicitly as the second argument.
-        // Some Expo versions on Android require this to be a non-null string.
-        const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
-
-        if (result.type === 'success' && result.url) {
-          console.log('[Google Auth] Success, parsing result...');
-
-          const url = new URL(result.url.replace('#', '?'));
-          const params = new URLSearchParams(url.search);
-
-          const accessToken = params.get('access_token');
-          const refreshToken = params.get('refresh_token');
-          const code = params.get('code');
-
-          if (accessToken && refreshToken) {
-            const { error: sessionError } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken,
-            });
-            if (sessionError) throw sessionError;
-          } else if (code) {
-            const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-            if (exchangeError) throw exchangeError;
-          } else {
-            throw new Error('No tokens found in response.');
-          }
-
-          await refreshProfile();
+      if (accessToken && refreshToken) {
+        const { error: setSessionError } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+        if (setSessionError) {
+          throw setSessionError;
         }
+      } else if (code) {
+        const { error: exchangeError } =
+          await supabase.auth.exchangeCodeForSession(code);
+        if (exchangeError) {
+          throw exchangeError;
+        }
+      } else {
+        throw new Error('Authorization code not found.');
+      }
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+      if (sessionError) {
+        throw sessionError;
+      }
+      if (!session) {
+        throw new Error('No active Supabase session.');
+      }
+      if (isMounted.current) {
+        await refreshProfile();
       }
     } catch (err: any) {
-      console.error('[Google Auth] Error:', err);
-      setError(err.message || 'Google sign-in failed.');
+      if (isMounted.current) {
+        setError(err?.message ?? 'Google sign-in failed.');
+      }
     } finally {
-      setLoading(false);
+      safeSetLoading(false);
     }
   };
 
@@ -118,13 +200,8 @@ export default function LoginScreen() {
       return;
     }
 
-    if (!validateEmail(email.trim())) {
-      setError('Please enter a valid email address.');
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
+    safeSetLoading(true);
+    if (isMounted.current) setError(null);
 
     try {
       const { data, error: authError } = await supabase.auth.signInWithPassword({
@@ -133,145 +210,45 @@ export default function LoginScreen() {
       });
 
       if (authError) {
-        if (authError.message.includes('Invalid login credentials')) {
-          setError('Invalid email or password.');
-        } else {
-          setError(authError.message);
-        }
+        if (isMounted.current) setError(authError.message);
         return;
       }
 
-      if (data.session) {
+      if (data.session && isMounted.current) {
         const { data: factors } = await supabase.auth.mfa.listFactors();
         const verifiedFactor = factors?.all.find(f => f.factor_type === 'totp' && f.status === 'verified');
 
-        if (verifiedFactor) {
+        if (verifiedFactor && isMounted.current) {
           setMfaFactorId(verifiedFactor.id);
-          switchMode('mfa');
+          setMode('mfa');
           return;
         }
       }
 
-      await refreshProfile();
+      if (isMounted.current) await refreshProfile();
     } catch (err: any) {
-      console.error('Login: Sign in error:', err);
-      setError('Something went wrong. Please try again.');
+      if (isMounted.current) setError('Something went wrong. Please try again.');
     } finally {
-      setLoading(false);
-    }
-  };
-
-  const switchMode = (newMode: AuthMode) => {
-    const changeId = ++modeChangeId.current;
-    fadeAnim.stopAnimation(() => {
-      Animated.timing(fadeAnim, { toValue: 0, duration: 150, useNativeDriver: true }).start(() => {
-        if (modeChangeId.current !== changeId) return;
-        setMode(newMode);
-        setError(null);
-        setInfo(null);
-        Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
-      });
-    });
-  };
-
-  const handleForgotPassword = async () => {
-    if (!email.trim()) {
-      setError('Please enter your email address first.');
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    setInfo(null);
-    try {
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(
-        email.trim().toLowerCase()
-      );
-      if (resetError) {
-        setError(resetError.message);
-      } else {
-        setInfo('Password reset link sent! Check your email.');
-      }
-    } catch {
-      setError('Something went wrong. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSignUp = async () => {
-    if (!name.trim()) {
-      setError('Please enter your full name.');
-      return;
-    }
-    if (!email.trim() || !validateEmail(email.trim())) {
-      setError('Please enter a valid email address.');
-      return;
-    }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters.');
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    try {
-      const { data, error: authError } = await supabase.auth.signUp({
-        email: email.trim().toLowerCase(),
-        password,
-        options: {
-          data: { name: name.trim() },
-        },
-      });
-
-      if (authError) {
-        setError(authError.message);
-        return;
-      }
-
-      if (!data.session) {
-        setInfo('Account created! Please check your email to confirm.');
-        setEmailTab('signin');
-      }
-    } catch {
-      setError('Something went wrong. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerifyMfa = async () => {
-    if (!mfaFactorId || mfaCode.length !== 6) return;
-
-    setLoading(true);
-    setError(null);
-    try {
-      const { data: challengeData, error: challengeError } = await supabase.auth.mfa.challenge({
-        factorId: mfaFactorId,
-      });
-
-      if (challengeError) throw challengeError;
-
-      const { error: verifyError } = await supabase.auth.mfa.verify({
-        factorId: mfaFactorId,
-        challengeId: challengeData.id,
-        code: mfaCode,
-      });
-
-      if (verifyError) throw verifyError;
-      await refreshProfile();
-    } catch (err: any) {
-      setError(err.message || 'Verification failed. Please try again.');
-    } finally {
-      setLoading(false);
+      safeSetLoading(false);
     }
   };
 
   useEffect(() => {
-    if (isAuthenticated && appProfile) {
-      const isAdmin = appProfile.is_admin || (appProfile as any).role === 'admin';
+    if (isAuthenticated && profile && isMounted.current) {
+      const isAdmin = profile.is_admin || (profile as any).role === 'admin';
       router.replace(isAdmin ? '/admin' : '/(tabs)');
     }
-  }, [isAuthenticated, appProfile]);
+  }, [isAuthenticated, profile]);
+
+  const switchMode = (newMode: AuthMode) => {
+    Animated.timing(fadeAnim, { toValue: 0, duration: 150, useNativeDriver: true }).start(() => {
+      if (!isMounted.current) return;
+      setMode(newMode);
+      setError(null);
+      setInfo(null);
+      Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+    });
+  };
 
   const gradientColors: [string, string, string] = isDark
     ? [colors.bg, '#0D1A13', colors.bg]
@@ -282,9 +259,6 @@ export default function LoginScreen() {
   return (
     <KeyboardAvoidingView style={dynamicStyles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <LinearGradient colors={gradientColors} style={StyleSheet.absoluteFill} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} />
-      <View style={dynamicStyles.decorCircle1} />
-      <View style={dynamicStyles.decorCircle2} />
-
       <ScrollView contentContainerStyle={dynamicStyles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps='always'>
         <View style={dynamicStyles.header}>
           {mode !== 'options' && (
@@ -303,56 +277,12 @@ export default function LoginScreen() {
         <Animated.View style={{ opacity: fadeAnim }}>
           {mode === 'options' && (
             <View>
-              <View style={dynamicStyles.illustrationCard}>
-                <LinearGradient colors={['rgba(22,199,132,0.08)', 'transparent']} style={dynamicStyles.illustBg}>
-                  <View style={dynamicStyles.landscape}>
-                    <View style={[dynamicStyles.mountain, isDark && { backgroundColor: colors.bgCard2 }]} />
-                    <View style={[dynamicStyles.mountain2, isDark && { backgroundColor: colors.bgElevated }]} />
-                    <View style={[dynamicStyles.building, isDark && { backgroundColor: colors.bgCard2 }]} />
-                    <View style={[dynamicStyles.building2, isDark && { backgroundColor: colors.bgElevated }]} />
-                    <View style={[dynamicStyles.building3, isDark && { backgroundColor: colors.bgCard }]} />
-                    <View style={dynamicStyles.ground} />
-                    <View style={dynamicStyles.tree} />
-                    <View style={dynamicStyles.tree2} />
-                  </View>
-                  <View style={dynamicStyles.statsOverlay}>
-                    <View style={dynamicStyles.floatingCard}>
-                      <Text style={dynamicStyles.floatingValue}>+22.4%</Text>
-                      <Text style={dynamicStyles.floatingLabel}>Annual Returns</Text>
-                    </View>
-                    <View style={dynamicStyles.floatingCard2}>
-                      <Text style={dynamicStyles.floatingValue}>₹500</Text>
-                      <Text style={dynamicStyles.floatingLabel}>Start Today</Text>
-                    </View>
-                  </View>
-                </LinearGradient>
-              </View>
-
               <Text style={dynamicStyles.heroTitle}>Grow Your Wealth{'\n'}Through Land</Text>
-              <Text style={dynamicStyles.heroSub}>India's most trusted platform for fractional land investments</Text>
-
-              <View style={dynamicStyles.trustRow}>
-                {['SEBI Compliant', 'KYC Secured', 'Bank-grade Security'].map(t => (
-                  <View key={t} style={dynamicStyles.trustBadge}>
-                    <View style={dynamicStyles.trustDot} />
-                    <Text style={dynamicStyles.trustText}>{t}</Text>
-                  </View>
-                ))}
-              </View>
-
-              <Text style={dynamicStyles.loginTitle}>Get Started</Text>
-              <Text style={dynamicStyles.loginSub}>Create an account or sign in below</Text>
 
               {error && (
                 <View style={dynamicStyles.errorBox}>
                   <AlertCircle size={14} color={colors.error} />
                   <Text style={dynamicStyles.errorText}>{error}</Text>
-                </View>
-              )}
-              {info && (
-                <View style={[dynamicStyles.errorBox, dynamicStyles.infoBox]}>
-                  <AlertCircle size={14} color={colors.emerald} />
-                  <Text style={dynamicStyles.infoText}>{info}</Text>
                 </View>
               )}
 
@@ -370,10 +300,6 @@ export default function LoginScreen() {
                   <Text style={dynamicStyles.authBtnText}>Continue with Email</Text>
                 </LinearGradient>
               </TouchableOpacity>
-
-              <Text style={dynamicStyles.termsText}>
-                By proceeding, you agree to our <Text style={dynamicStyles.termsLink}>Terms</Text> and <Text style={dynamicStyles.termsLink}>Privacy</Text>
-              </Text>
             </View>
           )}
 
@@ -383,9 +309,6 @@ export default function LoginScreen() {
                 <TouchableOpacity style={[dynamicStyles.tab, emailTab === 'signin' && dynamicStyles.tabActive]} onPress={() => setEmailTab('signin')} disabled={loading}>
                   <Text style={[dynamicStyles.tabText, emailTab === 'signin' && { color: colors.emerald }]}>Sign In</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[dynamicStyles.tab, emailTab === 'signup' && dynamicStyles.tabActive]} onPress={() => setEmailTab('signup')} disabled={loading}>
-                  <Text style={[dynamicStyles.tabText, emailTab === 'signup' && { color: colors.emerald }]}>Sign Up</Text>
-                </TouchableOpacity>
               </View>
 
               {error && (
@@ -394,105 +317,25 @@ export default function LoginScreen() {
                   <Text style={dynamicStyles.errorText}>{error}</Text>
                 </View>
               )}
-              {info && (
-                <View style={[dynamicStyles.errorBox, dynamicStyles.infoBox]}>
-                  <AlertCircle size={14} color={colors.emerald} />
-                  <Text style={dynamicStyles.infoText}>{info}</Text>
-                </View>
-              )}
-
-              {emailTab === 'signup' && (
-                <View style={dynamicStyles.inputGroup}>
-                  <View style={dynamicStyles.inputWrapper}>
-                    <UserPlus size={16} color={colors.textMuted} />
-                    <TextInput style={dynamicStyles.input} placeholder='Full Name' value={name} onChangeText={setName} editable={!loading} />
-                  </View>
-                </View>
-              )}
 
               <View style={dynamicStyles.inputGroup}>
                 <View style={dynamicStyles.inputWrapper}>
                   <Mail size={16} color={colors.textMuted} />
-                  <TextInput style={dynamicStyles.input} placeholder='Email' keyboardType='email-address' autoCapitalize='none' value={email} onChangeText={v => { setEmail(v); setError(null); }} editable={!loading} />
+                  <TextInput style={dynamicStyles.input} placeholder='Email' keyboardType='email-address' autoCapitalize='none' value={email} onChangeText={setEmail} editable={!loading} />
                 </View>
               </View>
 
               <View style={dynamicStyles.inputGroup}>
                 <View style={dynamicStyles.inputWrapper}>
                   <Eye size={16} color={colors.textMuted} />
-                  <TextInput style={dynamicStyles.input} placeholder='Password' secureTextEntry={!showPassword} value={password} onChangeText={v => { setPassword(v); setError(null); }} editable={!loading} />
-                  <TouchableOpacity onPress={() => setShowPassword(!showPassword)} disabled={loading}>
-                    {showPassword ? <EyeOff size={16} color={colors.textMuted} /> : <Eye size={16} color={colors.textMuted} />}
-                  </TouchableOpacity>
+                  <TextInput style={dynamicStyles.input} placeholder='Password' secureTextEntry={!showPassword} value={password} onChangeText={setPassword} editable={!loading} />
                 </View>
               </View>
 
-              <TouchableOpacity style={[dynamicStyles.authBtn, loading && dynamicStyles.authBtnDisabled]} onPress={emailTab === 'signin' ? handleSignIn : handleSignUp} disabled={loading}>
+              <TouchableOpacity style={[dynamicStyles.authBtn, loading && dynamicStyles.authBtnDisabled]} onPress={handleSignIn} disabled={loading}>
                 <LinearGradient colors={colors.gradientGreen} style={dynamicStyles.authBtnGrad}>
-                  {loading ? <ActivityIndicator color='#fff' /> : <Text style={dynamicStyles.authBtnText}>{emailTab === 'signin' ? 'Sign In' : 'Create Account'}</Text>}
+                  {loading ? <ActivityIndicator color='#fff' /> : <Text style={dynamicStyles.authBtnText}>Sign In</Text>}
                 </LinearGradient>
-              </TouchableOpacity>
-
-              {emailTab === 'signin' && (
-                <TouchableOpacity onPress={() => switchMode('forgot')} disabled={loading} style={{ marginTop: 12, alignItems: 'center' }}>
-                  <Text style={dynamicStyles.forgotText}>Forgot Password?</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
-
-          {mode === 'forgot' && (
-            <View>
-              <Text style={dynamicStyles.loginTitle}>Reset Password</Text>
-              <View style={dynamicStyles.inputGroup}>
-                <View style={dynamicStyles.inputWrapper}>
-                  <Mail size={16} color={colors.textMuted} />
-                  <TextInput style={dynamicStyles.input} placeholder='Email' value={email} onChangeText={v => { setEmail(v); setError(null); }} editable={!loading} />
-                </View>
-              </View>
-              <TouchableOpacity style={[dynamicStyles.authBtn, loading && dynamicStyles.authBtnDisabled]} onPress={handleForgotPassword} disabled={loading}>
-                <LinearGradient colors={colors.gradientGreen} style={dynamicStyles.authBtnGrad}>
-                  {loading ? <ActivityIndicator color='#fff' /> : <Text style={dynamicStyles.authBtnText}>Send Link</Text>}
-                </LinearGradient>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => switchMode('email')} disabled={loading} style={{ marginTop: 12, alignItems: 'center' }}>
-                <Text style={dynamicStyles.forgotText}>Back</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {mode === 'mfa' && (
-            <View>
-              <Text style={dynamicStyles.loginTitle}>Two-Factor Auth</Text>
-              <Text style={dynamicStyles.loginSub}>Enter the 6-digit code from your authenticator app.</Text>
-
-              {error && (
-                <View style={dynamicStyles.errorBox}>
-                  <AlertCircle size={14} color={colors.error} />
-                  <Text style={dynamicStyles.errorText}>{error}</Text>
-                </View>
-              )}
-
-              <View style={dynamicStyles.inputGroup}>
-                <View style={dynamicStyles.inputWrapper}>
-                  <TextInput
-                    style={[dynamicStyles.input, { textAlign: 'center', fontSize: 24, fontWeight: '700', letterSpacing: 8 }]}
-                    placeholder='000000'
-                    keyboardType='number-pad'
-                    maxLength={6}
-                    value={mfaCode}
-                    onChangeText={setMfaCode}
-                    editable={!loading}
-                  />
-                </View>
-              </View>
-              <TouchableOpacity style={[dynamicStyles.authBtn, loading && dynamicStyles.authBtnDisabled]} onPress={handleVerifyMfa} disabled={loading || mfaCode.length !== 6}>
-                <LinearGradient colors={colors.gradientGreen} style={dynamicStyles.authBtnGrad}>
-                  {loading ? <ActivityIndicator color='#fff' /> : <Text style={dynamicStyles.authBtnText}>Verify & Sign In</Text>}
-                </LinearGradient>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => switchMode('email')} disabled={loading} style={{ marginTop: 12, alignItems: 'center' }}>
-                <Text style={dynamicStyles.forgotText}>Back to Sign In</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -506,46 +349,19 @@ function getDynamicStyles(colors: any, isDark: boolean) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.bg },
     scroll: { flexGrow: 1, padding: 24, paddingTop: 52 },
-    decorCircle1: { position: 'absolute', top: -80, right: -80, width: 240, height: 240, borderRadius: 120, backgroundColor: colors.emerald + '08' },
-    decorCircle2: { position: 'absolute', bottom: 60, left: -60, width: 180, height: 180, borderRadius: 90, backgroundColor: colors.forest + '08' },
     header: { flexDirection: 'row', alignItems: 'center', marginBottom: 28 },
     backBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.bgCard, alignItems: 'center', justifyContent: 'center', marginRight: 12, borderWidth: 1, borderColor: colors.border },
     logoRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     logoCircle: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
     logoText: { color: '#fff', fontSize: 14, fontWeight: '900' },
     brandName: { color: colors.textPrimary, fontSize: 22, fontWeight: '800' },
-    illustrationCard: { borderRadius: 24, overflow: 'hidden', height: 180, marginBottom: 20, borderWidth: 1, borderColor: colors.glassBorder },
-    illustBg: { flex: 1, padding: 16 },
-    landscape: { flex: 1, alignItems: 'flex-end', justifyContent: 'flex-end', position: 'relative' },
-    mountain: { position: 'absolute', bottom: 40, left: 20, width: 80, height: 60, backgroundColor: isDark ? colors.bgCard2 : '#E2E8F0', borderRadius: 40 },
-    mountain2: { position: 'absolute', bottom: 40, left: 60, width: 100, height: 80, backgroundColor: isDark ? colors.bgElevated : '#CBD5E1' },
-    building: { position: 'absolute', bottom: 40, right: 30, width: 30, height: 80, backgroundColor: isDark ? colors.bgCard2 : '#E2E8F0', borderRadius: 4 },
-    building2: { position: 'absolute', bottom: 40, right: 70, height: 60, width: 25, backgroundColor: isDark ? colors.bgElevated : '#CBD5E1' },
-    building3: { position: 'absolute', bottom: 40, right: 110, height: 100, width: 35, backgroundColor: isDark ? colors.bgCard : '#F1F5F9' },
-    ground: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 40, backgroundColor: colors.emerald + '22', borderRadius: 8 },
-    tree: { position: 'absolute', bottom: 38, left: 140, width: 10, height: 30, backgroundColor: colors.emerald + '66', borderRadius: 5 },
-    tree2: { position: 'absolute', bottom: 38, left: 165, width: 10, height: 20, backgroundColor: colors.emerald + '66', borderRadius: 5 },
-    statsOverlay: { position: 'absolute', bottom: 12, left: 12, right: 12, flexDirection: 'row', gap: 10 },
-    floatingCard: { flex: 1, backgroundColor: colors.glass, borderRadius: 12, padding: 10, borderWidth: 1, borderColor: colors.glassBorder },
-    floatingCard2: { flex: 1, backgroundColor: colors.emeraldGlow2, borderRadius: 12, padding: 10, borderWidth: 1, borderColor: colors.glassBorder },
-    floatingValue: { color: colors.emerald, fontSize: 16, fontWeight: '800' },
-    floatingLabel: { color: colors.textMuted, fontSize: 10, fontWeight: '500', marginTop: 2 },
-    heroTitle: { color: colors.textPrimary, fontSize: 26, fontWeight: '800', lineHeight: 34, marginBottom: 8 },
-    heroSub: { color: colors.textSecondary, fontSize: 14, lineHeight: 22, marginBottom: 14 },
-    trustRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 24 },
-    trustBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
-    trustDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.emerald },
-    trustText: { color: colors.textSecondary, fontSize: 11, fontWeight: '500' },
-    loginTitle: { color: colors.textPrimary, fontSize: 22, fontWeight: '800', marginBottom: 4 },
-    loginSub: { color: colors.textSecondary, fontSize: 13, marginBottom: 20 },
+    heroTitle: { color: colors.textPrimary, fontSize: 26, fontWeight: '800', lineHeight: 34, marginBottom: 20 },
     tabRow: { flexDirection: 'row', gap: 8, marginBottom: 24 },
     tab: { flex: 1, borderRadius: 12, paddingVertical: 12, alignItems: 'center', backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border },
     tabActive: { borderColor: colors.emerald },
     tabText: { color: colors.textMuted, fontWeight: '700' },
     errorBox: { flexDirection: 'row', gap: 8, backgroundColor: 'rgba(239,68,68,0.1)', borderRadius: 12, padding: 12, marginBottom: 16 },
-    infoBox: { backgroundColor: colors.emerald + '10' },
     errorText: { color: colors.error, fontSize: 13, flex: 1 },
-    infoText: { color: colors.emerald, fontSize: 13, flex: 1 },
     socialBtn: { backgroundColor: colors.bgCard, borderRadius: 14, borderWidth: 1, borderColor: colors.border, marginBottom: 10 },
     socialBtnInner: { flexDirection: 'row', alignItems: 'center', padding: 15, gap: 12 },
     googleG: { fontSize: 18, fontWeight: '800', color: '#4285F4', width: 24, textAlign: 'center' },
@@ -557,8 +373,5 @@ function getDynamicStyles(colors: any, isDark: boolean) {
     inputGroup: { marginBottom: 16 },
     inputWrapper: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.bgInput, borderRadius: 14, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 14, paddingVertical: 14 },
     input: { flex: 1, color: colors.textPrimary, fontSize: 15 },
-    forgotText: { color: colors.emerald, fontSize: 13, fontWeight: '600' },
-    termsText: { color: colors.textMuted, fontSize: 11, textAlign: 'center', marginTop: 16 },
-    termsLink: { color: colors.emerald, fontWeight: '600' },
   });
 }
