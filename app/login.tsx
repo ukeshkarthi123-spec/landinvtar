@@ -1,30 +1,22 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Dimensions,
   TextInput, KeyboardAvoidingView, Platform, ScrollView,
-  Animated, ActivityIndicator, Alert
+  ActivityIndicator, Alert, StatusBar, Image
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
-import { Mail, ChevronRight, Eye, EyeOff, ArrowLeft, AlertCircle, UserPlus } from 'lucide-react-native';
-
-import * as Constants from 'expo-constants';
-
-// ... (existing imports)
-
-// Standard requirement for AuthSession in Expo
-WebBrowser.maybeCompleteAuthSession();
-
+import { Mail, ChevronRight, Eye, EyeOff, ArrowLeft, AlertCircle, Lock, ArrowRight } from 'lucide-react-native';
 import { useTheme } from '@/context/ThemeContext';
 import { useApp } from '@/context/AppContext';
 import { supabase } from '@/lib/supabase';
 
+WebBrowser.maybeCompleteAuthSession();
+
 const { width } = Dimensions.get('window');
 
-// React Native (Hermes) doesn't reliably support the global URL/URLSearchParams
-// APIs, so we extract query/hash params with a small regex helper instead.
 function getQueryParam(url: string, key: string): string | null {
   const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const pattern = new RegExp(`[?#&]${escapedKey}=([^&]*)`);
@@ -32,290 +24,232 @@ function getQueryParam(url: string, key: string): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-type AuthMode = 'options' | 'email' | 'forgot' | 'mfa';
-type EmailTab = 'signin' | 'signup';
-
 export default function LoginScreen() {
   const { colors, isDark } = useTheme();
   const { isAuthenticated, profile, refreshProfile } = useApp();
-  const [mode, setMode] = useState<AuthMode>('options');
-  const [emailTab, setEmailTab] = useState<EmailTab>('signin');
+  const [isSignIn, setIsSignIn] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [mfaCode, setMfaCode] = useState('');
-  const [mfaFactorId, setMfaFactorId] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
-  const fadeAnim = useRef(new Animated.Value(1)).current;
+
   const isMounted = useRef(true);
 
   useEffect(() => {
     isMounted.current = true;
-    return () => {
-      isMounted.current = false;
-    };
+    return () => { isMounted.current = false; };
   }, []);
-
-  const safeSetLoading = useCallback((val: boolean) => {
-    if (isMounted.current) setLoading(val);
-  }, []);
-
-  // After a web OAuth redirect, Supabase auto-parses the session from the
-  // URL on load (detectSessionInUrl). Pick that session up here and refresh
-  // the profile so the isAuthenticated/profile effect below can navigate.
-  useEffect(() => {
-    if (Platform.OS !== 'web') return;
-
-    const checkRedirectSession = async () => {
-      const hasAuthParams =
-        window.location.hash.includes('access_token') ||
-        window.location.search.includes('code=') ||
-        window.location.hash.includes('code=');
-      if (!hasAuthParams) return;
-
-      safeSetLoading(true);
-      try {
-        const {
-          data: { session },
-          error: sessionError,
-        } = await supabase.auth.getSession();
-        if (sessionError) {
-          throw sessionError;
-        }
-        if (session && isMounted.current) {
-          await refreshProfile();
-        } else if (isMounted.current) {
-          setError('Sign-in did not complete. Please try again.');
-        }
-      } catch (err: any) {
-        if (isMounted.current) {
-          setError(err?.message ?? 'Google sign-in failed.');
-        }
-      } finally {
-        safeSetLoading(false);
-      }
-    };
-
-    checkRedirectSession();
-  }, [refreshProfile, safeSetLoading]);
 
   const handleGoogleSignIn = async () => {
-    safeSetLoading(true);
-    if (isMounted.current) {
-      setError(null);
-    }
+    setLoading(true);
+    setError(null);
     try {
-      if (Platform.OS === 'web') {
-        const { error: webSignInError } = await supabase.auth.signInWithOAuth({
-          provider: 'google',
-          options: {
-            redirectTo: window.location.origin + '/login',
-          },
-        });
-        if (webSignInError) throw webSignInError;
-        return;
-      }
-
-      // For Native (Android/iOS)
       const scheme = 'myapp';
-      const redirectTo = AuthSession.makeRedirectUri({
-        scheme,
-        path: 'login',
-      });
-
+      const redirectTo = AuthSession.makeRedirectUri({ scheme, path: 'login' });
       const { data, error: signInError } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: {
-          redirectTo,
-          skipBrowserRedirect: true,
-        },
+        options: { redirectTo, skipBrowserRedirect: true },
       });
 
       if (signInError) throw signInError;
-      if (!data?.url) throw new Error('Google OAuth URL was not returned.');
+      if (!data?.url) throw new Error('OAuth URL not returned');
 
-      // Open the browser and wait for the redirect back to the app
       const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
 
       if (result.type === 'success' && result.url) {
-        const accessToken = getQueryParam(result.url, 'access_token');
-        const refreshToken = getQueryParam(result.url, 'refresh_token');
         const code = getQueryParam(result.url, 'code');
-
-        if (accessToken && refreshToken) {
-          const { error: setSessionError } = await supabase.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken,
-          });
-          if (setSessionError) throw setSessionError;
-        } else if (code) {
-          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-          if (exchangeError) throw exchangeError;
-        }
-
-        if (isMounted.current) {
-          await refreshProfile();
-        }
+        if (code) await supabase.auth.exchangeCodeForSession(code);
+        await refreshProfile();
       }
     } catch (err: any) {
-      console.error('[Google Sign-In Error]', err);
-      if (isMounted.current) {
-        setError(err?.message ?? 'Google sign-in failed.');
-      }
+      console.error('[Google SignIn Error]', err);
+      setError(err?.message || 'Google sign-in failed');
     } finally {
-      safeSetLoading(false);
+      setLoading(false);
     }
   };
 
-  const handleSignIn = async () => {
-    if (!email.trim() || !password) {
-      setError('Please enter your email and password.');
+  const handleAuth = async () => {
+    if (!email.trim() || (!isSignIn && !password) || (isSignIn && !password)) {
+      setError('Please fill in all fields.');
       return;
     }
-
-    safeSetLoading(true);
-    if (isMounted.current) setError(null);
-
+    setLoading(true);
+    setError(null);
     try {
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email: email.trim().toLowerCase(),
-        password,
-      });
-
-      if (authError) {
-        if (isMounted.current) setError(authError.message);
-        return;
+      if (isSignIn) {
+        const { error: err } = await supabase.auth.signInWithPassword({
+          email: email.trim().toLowerCase(),
+          password,
+        });
+        if (err) throw err;
+      } else {
+        if (!name.trim()) throw new Error('Please enter your name.');
+        const { error: err } = await supabase.auth.signUp({
+          email: email.trim().toLowerCase(),
+          password,
+          options: { data: { name: name.trim() } }
+        });
+        if (err) throw err;
+        Alert.alert('Success', 'Account created! Please check your email for verification.');
+        setIsSignIn(true);
       }
-
-      if (data.session && isMounted.current) {
-        const { data: factors } = await supabase.auth.mfa.listFactors();
-        const verifiedFactor = factors?.all.find(f => f.factor_type === 'totp' && f.status === 'verified');
-
-        if (verifiedFactor && isMounted.current) {
-          setMfaFactorId(verifiedFactor.id);
-          setMode('mfa');
-          return;
-        }
-      }
-
-      if (isMounted.current) await refreshProfile();
+      await refreshProfile();
     } catch (err: any) {
-      if (isMounted.current) setError('Something went wrong. Please try again.');
+      setError(err.message);
     } finally {
-      safeSetLoading(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (isAuthenticated && profile && isMounted.current) {
+    if (isAuthenticated && profile) {
       const isAdmin = profile.is_admin || (profile as any).role === 'admin';
       router.replace(isAdmin ? '/admin' : '/(tabs)');
     }
   }, [isAuthenticated, profile]);
 
-  const switchMode = (newMode: AuthMode) => {
-    Animated.timing(fadeAnim, { toValue: 0, duration: 150, useNativeDriver: true }).start(() => {
-      if (!isMounted.current) return;
-      setMode(newMode);
-      setError(null);
-      setInfo(null);
-      Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
-    });
-  };
-
-  const gradientColors: [string, string, string] = isDark
-    ? [colors.bg, '#0D1A13', colors.bg]
-    : [colors.bg, '#FFFFFF', colors.bg];
-
   const dynamicStyles = getDynamicStyles(colors, isDark);
 
   return (
     <KeyboardAvoidingView style={dynamicStyles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <LinearGradient colors={gradientColors} style={StyleSheet.absoluteFill} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} />
-      <ScrollView contentContainerStyle={dynamicStyles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps='always'>
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
+      <LinearGradient colors={[colors.bg, colors.bg]} style={StyleSheet.absoluteFill} />
+
+      <ScrollView contentContainerStyle={dynamicStyles.scroll} showsVerticalScrollIndicator={false}>
         <View style={dynamicStyles.header}>
-          {mode !== 'options' && (
-            <TouchableOpacity style={dynamicStyles.backBtn} onPress={() => switchMode('options')} disabled={loading}>
-              <ArrowLeft size={22} color={colors.textPrimary} />
-            </TouchableOpacity>
-          )}
-          <View style={dynamicStyles.logoRow}>
-            <LinearGradient colors={[colors.emerald, colors.forest]} style={dynamicStyles.logoCircle} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-              <Text style={dynamicStyles.logoText}>IL</Text>
+            <LinearGradient
+                colors={colors.gradientGreen}
+                style={dynamicStyles.logoCircle}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+            >
+                <Text style={dynamicStyles.logoText}>IL</Text>
             </LinearGradient>
-            <Text style={dynamicStyles.brandName}><Text style={{ color: colors.emerald }}>Invest</Text>Land</Text>
-          </View>
+            <Text style={dynamicStyles.brandName}><Text style={{ color: colors.emerald }}>Invest</Text><Text style={{ color: colors.textPrimary }}>Land</Text></Text>
         </View>
 
-        <Animated.View style={{ opacity: fadeAnim }}>
-          {mode === 'options' && (
-            <View>
-              <Text style={dynamicStyles.heroTitle}>Grow Your Wealth{'\n'}Through Land</Text>
+        <Text style={dynamicStyles.heroTitle}>
+            {isSignIn ? 'Welcome Back,\nInvestor' : 'Start Your Land\nJourney Today'}
+        </Text>
+        <Text style={dynamicStyles.heroSub}>
+            {isSignIn ? 'Sign in to manage your fractional holdings.' : 'Create an account and start investing with ₹500.'}
+        </Text>
 
-              {error && (
-                <View style={dynamicStyles.errorBox}>
-                  <AlertCircle size={14} color={colors.error} />
-                  <Text style={dynamicStyles.errorText}>{error}</Text>
-                </View>
-              )}
+        <View style={dynamicStyles.tabRow}>
+            <TouchableOpacity
+                style={[dynamicStyles.tab, isSignIn && dynamicStyles.tabActive]}
+                onPress={() => setIsSignIn(true)}
+            >
+                <Text style={[dynamicStyles.tabText, isSignIn && { color: colors.emerald }]}>Sign In</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+                style={[dynamicStyles.tab, !isSignIn && dynamicStyles.tabActive]}
+                onPress={() => setIsSignIn(false)}
+            >
+                <Text style={[dynamicStyles.tabText, !isSignIn && { color: colors.emerald }]}>Register</Text>
+            </TouchableOpacity>
+        </View>
 
-              <TouchableOpacity style={[dynamicStyles.socialBtn, loading && dynamicStyles.authBtnDisabled]} onPress={handleGoogleSignIn} disabled={loading}>
-                <View style={dynamicStyles.socialBtnInner}>
-                  {loading ? <ActivityIndicator size="small" color={colors.emerald} /> : <Text style={dynamicStyles.googleG}>G</Text>}
-                  <Text style={dynamicStyles.socialBtnText}>Continue with Google</Text>
-                  <ChevronRight size={16} color={colors.textMuted} />
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={[dynamicStyles.authBtn, loading && dynamicStyles.authBtnDisabled]} onPress={() => switchMode('email')} disabled={loading}>
-                <LinearGradient colors={colors.gradientGreen} style={dynamicStyles.authBtnGrad}>
-                  <Mail size={18} color='#fff' />
-                  <Text style={dynamicStyles.authBtnText}>Continue with Email</Text>
-                </LinearGradient>
-              </TouchableOpacity>
+        {error && (
+            <View style={dynamicStyles.errorBox}>
+                <AlertCircle size={16} color={colors.error} />
+                <Text style={dynamicStyles.errorText}>{error}</Text>
             </View>
-          )}
+        )}
 
-          {mode === 'email' && (
-            <View>
-              <View style={dynamicStyles.tabRow}>
-                <TouchableOpacity style={[dynamicStyles.tab, emailTab === 'signin' && dynamicStyles.tabActive]} onPress={() => setEmailTab('signin')} disabled={loading}>
-                  <Text style={[dynamicStyles.tabText, emailTab === 'signin' && { color: colors.emerald }]}>Sign In</Text>
+        <View style={dynamicStyles.form}>
+            {!isSignIn && (
+                <View style={dynamicStyles.inputContainer}>
+                    <Text style={dynamicStyles.inputLabel}>Full Name</Text>
+                    <View style={dynamicStyles.inputWrapper}>
+                        <TextInput
+                            style={dynamicStyles.input}
+                            placeholder="John Doe"
+                            placeholderTextColor={colors.textMuted}
+                            value={name}
+                            onChangeText={setName}
+                        />
+                    </View>
+                </View>
+            )}
+
+            <View style={dynamicStyles.inputContainer}>
+                <Text style={dynamicStyles.inputLabel}>Email Address</Text>
+                <View style={dynamicStyles.inputWrapper}>
+                    <Mail size={18} color={colors.textMuted} />
+                    <TextInput
+                        style={dynamicStyles.input}
+                        placeholder="name@email.com"
+                        placeholderTextColor={colors.textMuted}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                        value={email}
+                        onChangeText={setEmail}
+                    />
+                </View>
+            </View>
+
+            <View style={dynamicStyles.inputContainer}>
+                <Text style={dynamicStyles.inputLabel}>Password</Text>
+                <View style={dynamicStyles.inputWrapper}>
+                    <Lock size={18} color={colors.textMuted} />
+                    <TextInput
+                        style={dynamicStyles.input}
+                        placeholder="••••••••"
+                        placeholderTextColor={colors.textMuted}
+                        secureTextEntry={!showPassword}
+                        value={password}
+                        onChangeText={setPassword}
+                    />
+                    <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                        {showPassword ? <EyeOff size={18} color={colors.textMuted} /> : <Eye size={18} color={colors.textMuted} />}
+                    </TouchableOpacity>
+                </View>
+            </View>
+
+            {isSignIn && (
+                <TouchableOpacity style={dynamicStyles.forgotBtn} onPress={() => router.push('/forgot-password')}>
+                    <Text style={dynamicStyles.forgotText}>Forgot Password?</Text>
                 </TouchableOpacity>
-              </View>
+            )}
 
-              {error && (
-                <View style={dynamicStyles.errorBox}>
-                  <AlertCircle size={14} color={colors.error} />
-                  <Text style={dynamicStyles.errorText}>{error}</Text>
-                </View>
-              )}
-
-              <View style={dynamicStyles.inputGroup}>
-                <View style={dynamicStyles.inputWrapper}>
-                  <Mail size={16} color={colors.textMuted} />
-                  <TextInput style={dynamicStyles.input} placeholder='Email' keyboardType='email-address' autoCapitalize='none' value={email} onChangeText={setEmail} editable={!loading} />
-                </View>
-              </View>
-
-              <View style={dynamicStyles.inputGroup}>
-                <View style={dynamicStyles.inputWrapper}>
-                  <Eye size={16} color={colors.textMuted} />
-                  <TextInput style={dynamicStyles.input} placeholder='Password' secureTextEntry={!showPassword} value={password} onChangeText={setPassword} editable={!loading} />
-                </View>
-              </View>
-
-              <TouchableOpacity style={[dynamicStyles.authBtn, loading && dynamicStyles.authBtnDisabled]} onPress={handleSignIn} disabled={loading}>
-                <LinearGradient colors={colors.gradientGreen} style={dynamicStyles.authBtnGrad}>
-                  {loading ? <ActivityIndicator color='#fff' /> : <Text style={dynamicStyles.authBtnText}>Sign In</Text>}
+            <TouchableOpacity
+              style={dynamicStyles.mainBtn}
+              onPress={handleAuth}
+              disabled={loading}
+            >
+                <LinearGradient colors={colors.gradientGreen} style={dynamicStyles.mainBtnGrad}>
+                    {loading ? <ActivityIndicator color="#000" /> : (
+                        <>
+                            <Text style={dynamicStyles.mainBtnText}>
+                              {isSignIn ? 'Sign In' : 'Create Account'}
+                            </Text>
+                            <ArrowRight size={18} color="#000" />
+                        </>
+                    )}
                 </LinearGradient>
-              </TouchableOpacity>
-            </View>
-          )}
-        </Animated.View>
+            </TouchableOpacity>
+        </View>
+
+        <View style={dynamicStyles.dividerRow}>
+            <View style={dynamicStyles.divider} />
+            <Text style={dynamicStyles.dividerText}>OR</Text>
+            <View style={dynamicStyles.divider} />
+        </View>
+
+        <TouchableOpacity style={dynamicStyles.googleBtn} onPress={handleGoogleSignIn} disabled={loading}>
+            <Image source={{ uri: 'https://cdn1.iconfinder.com/data/icons/google-s-logo/150/Google_Icons-09-512.png' }} style={dynamicStyles.googleIcon} />
+            <Text style={dynamicStyles.googleBtnText}>Continue with Google</Text>
+        </TouchableOpacity>
+
+        <Text style={dynamicStyles.disclaimer}>
+            By continuing, you agree to InvestLand's Terms of Service and Privacy Policy.
+        </Text>
+
+        <View style={{ height: 40 }} />
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -324,30 +258,35 @@ export default function LoginScreen() {
 function getDynamicStyles(colors: any, isDark: boolean) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.bg },
-    scroll: { flexGrow: 1, padding: 24, paddingTop: 52 },
-    header: { flexDirection: 'row', alignItems: 'center', marginBottom: 28 },
-    backBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.bgCard, alignItems: 'center', justifyContent: 'center', marginRight: 12, borderWidth: 1, borderColor: colors.border },
-    logoRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-    logoCircle: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-    logoText: { color: '#fff', fontSize: 14, fontWeight: '900' },
-    brandName: { color: colors.textPrimary, fontSize: 22, fontWeight: '800' },
-    heroTitle: { color: colors.textPrimary, fontSize: 26, fontWeight: '800', lineHeight: 34, marginBottom: 20 },
-    tabRow: { flexDirection: 'row', gap: 8, marginBottom: 24 },
-    tab: { flex: 1, borderRadius: 12, paddingVertical: 12, alignItems: 'center', backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border },
-    tabActive: { borderColor: colors.emerald },
-    tabText: { color: colors.textMuted, fontWeight: '700' },
-    errorBox: { flexDirection: 'row', gap: 8, backgroundColor: 'rgba(239,68,68,0.1)', borderRadius: 12, padding: 12, marginBottom: 16 },
-    errorText: { color: colors.error, fontSize: 13, flex: 1 },
-    socialBtn: { backgroundColor: colors.bgCard, borderRadius: 14, borderWidth: 1, borderColor: colors.border, marginBottom: 10 },
-    socialBtnInner: { flexDirection: 'row', alignItems: 'center', padding: 15, gap: 12 },
-    googleG: { fontSize: 18, fontWeight: '800', color: '#4285F4', width: 24, textAlign: 'center' },
-    socialBtnText: { color: colors.textPrimary, fontSize: 14, fontWeight: '600', flex: 1 },
-    authBtn: { borderRadius: 14, overflow: 'hidden', marginBottom: 12 },
-    authBtnGrad: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 16 },
-    authBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-    authBtnDisabled: { opacity: 0.6 },
-    inputGroup: { marginBottom: 16 },
-    inputWrapper: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.bgInput, borderRadius: 14, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 14, paddingVertical: 14 },
-    input: { flex: 1, color: colors.textPrimary, fontSize: 15 },
+    scroll: { paddingHorizontal: 24, paddingTop: 60 },
+    header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 40 },
+    logoCircle: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+    logoText: { color: '#000', fontSize: 18, fontWeight: '900' },
+    brandName: { color: colors.textPrimary, fontSize: 24, fontWeight: '900', letterSpacing: -0.5 },
+    heroTitle: { color: colors.textPrimary, fontSize: 32, fontWeight: '900', letterSpacing: -1, lineHeight: 40, marginBottom: 12 },
+    heroSub: { color: colors.textSecondary, fontSize: 14, lineHeight: 22, marginBottom: 32 },
+    tabRow: { flexDirection: 'row', backgroundColor: colors.bgCard, borderRadius: 16, padding: 6, gap: 4, marginBottom: 32, borderWidth: 1, borderColor: colors.border },
+    tab: { flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: 12 },
+    tabActive: { backgroundColor: isDark ? '#212932' : '#F1F5F9' },
+    tabText: { color: colors.textMuted, fontSize: 14, fontWeight: '700' },
+    errorBox: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: 'rgba(239, 68, 68, 0.1)', padding: 12, borderRadius: 12, marginBottom: 24, borderWidth: 1, borderColor: 'rgba(239, 68, 68, 0.2)' },
+    errorText: { color: colors.error, fontSize: 13, fontWeight: '600', flex: 1 },
+    form: { gap: 20 },
+    inputContainer: { gap: 8 },
+    inputLabel: { color: colors.textSecondary, fontSize: 12, fontWeight: '700', marginLeft: 4, textTransform: 'uppercase', letterSpacing: 1 },
+    inputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bgCard, borderRadius: 16, paddingHorizontal: 16, height: 56, borderWidth: 1, borderColor: colors.border, gap: 12 },
+    input: { flex: 1, color: colors.textPrimary, fontSize: 15, fontWeight: '600' },
+    forgotBtn: { alignSelf: 'flex-end', marginTop: -8 },
+    forgotText: { color: colors.emerald, fontSize: 13, fontWeight: '700' },
+    mainBtn: { borderRadius: 18, overflow: 'hidden', marginTop: 12 },
+    mainBtnGrad: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 60, gap: 10 },
+    mainBtnText: { color: '#000', fontSize: 16, fontWeight: '800' },
+    dividerRow: { flexDirection: 'row', alignItems: 'center', gap: 16, marginVertical: 32 },
+    divider: { flex: 1, height: 1, backgroundColor: colors.border },
+    dividerText: { color: colors.textMuted, fontSize: 12, fontWeight: '800' },
+    googleBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 60, borderRadius: 18, backgroundColor: isDark ? '#FFFFFF' : '#F1F5F9', gap: 12, borderWidth: isDark ? 0 : 1, borderColor: colors.border },
+    googleIcon: { width: 24, height: 24 },
+    googleBtnText: { color: '#000', fontSize: 15, fontWeight: '800' },
+    disclaimer: { color: colors.textMuted, fontSize: 11, textAlign: 'center', lineHeight: 18, marginTop: 32 },
   });
 }

@@ -6,7 +6,7 @@ export interface Profile {
   avatar: string;
   kyc_status: 'Not Started' | 'Pending' | 'Verified';
   wallet_balance: number;
-  role: 'super_admin' | 'admin' | 'support' | 'user';
+  role: 'super_admin' | 'admin' | 'user';
   is_admin: boolean;
   created_at: string;
   updated_at: string;
@@ -101,7 +101,8 @@ export interface KycDocument {
   pan_file_url: string | null;
   aadhaar_number: string | null;
   aadhaar_file_url: string | null;
-  selfie_url: string | null;
+  aadhaar_back_file_url: string | null;
+  selfie_file_url: string | null;
   status: 'Pending' | 'Approved' | 'Rejected';
   rejection_reason: string | null;
   submitted_at: string;
@@ -137,12 +138,15 @@ export interface SupportTicket {
   user_id: string;
   subject: string;
   description: string;
-  category: 'General' | 'Investment' | 'Payment' | 'KYC' | 'Technical';
+  category: string;
+  priority: string;
   status: 'Open' | 'In Progress' | 'Resolved' | 'Closed';
-  priority: 'Low' | 'Medium' | 'High';
-  messages: { sender: string; message: string; created_at: string }[];
   created_at: string;
   updated_at: string;
+  profiles?: {
+    name: string;
+    email: string;
+  };
 }
 
 export interface Referral {
@@ -153,6 +157,14 @@ export interface Referral {
   status: 'Pending' | 'Completed' | 'Rewarded';
   reward_amount: number;
   created_at: string;
+}
+
+export interface Favorite {
+  id: string;
+  user_id: string;
+  project_id: string;
+  created_at: string;
+  land_projects?: LandProject;
 }
 
 export interface TaxReport {

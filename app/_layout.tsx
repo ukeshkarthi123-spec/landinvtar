@@ -1,12 +1,19 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import * as SplashScreen from 'expo-splash-screen';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
 import { AppProvider, useApp } from '@/context/AppContext';
 import { ThemeProvider, useTheme } from '@/context/ThemeContext';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, Platform } from 'react-native';
+import { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import LockScreen from '@/components/LockScreen';
+
+// Keep the splash screen visible while we fetch resources
+SplashScreen.preventAutoHideAsync().catch(() => {
+  /* reloading the app might cause some errors here */
+});
 
 function ThemedContent() {
   const { isDark, colors, isLoading } = useTheme();
@@ -23,7 +30,7 @@ function ThemedContent() {
       <Stack
         screenOptions={{
           headerShown: false,
-          animation: 'fade',
+          animation: 'fade_from_bottom',
           contentStyle: {
             backgroundColor: colors.bg
           }
@@ -36,6 +43,7 @@ function ThemedContent() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="property/[id]" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="notifications" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="favorites" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="edit-profile" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="kyc" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="bank-accounts" options={{ animation: 'slide_from_right' }} />
@@ -46,6 +54,9 @@ function ThemedContent() {
         <Stack.Screen name="refer-earn" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="rate" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="settings" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="change-password" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="forgot-password" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="reset-password" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="admin" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="+not-found" />
       </Stack>

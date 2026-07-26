@@ -9,7 +9,7 @@ import { router, useFocusEffect } from 'expo-router';
 import {
   ShieldCheck, CreditCard, Smartphone, Settings,
   Lock, HeadphonesIcon, LogOut, ChevronRight,
-  Bell, Gift, FileText, Star, UserCheck,
+  Bell, Gift, FileText, Star, UserCheck, Heart
 } from 'lucide-react-native';
 import { useTheme } from '@/context/ThemeContext';
 import { useApp } from '@/context/AppContext';
@@ -295,6 +295,14 @@ export default function ProfileScreen() {
           <Text style={dynamicStyles.menuSectionTitle}>Preferences</Text>
           <View style={dynamicStyles.menuCard}>
             <MenuItem
+              icon={<Heart size={18} color="#EF4444" />}
+              label="Wishlist / Favorites"
+              color="rgba(239,68,68,0.1)"
+              onPress={() => router.push('/favorites')}
+              colors={colors}
+            />
+            <View style={dynamicStyles.menuDivider} />
+            <MenuItem
               icon={<Bell size={18} color={colors.emerald} />}
               label="Notifications"
               color={colors.emeraldGlow}
@@ -312,13 +320,13 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Support Menu */}
+        {/* Extra Actions */}
         <View style={dynamicStyles.section}>
           <Text style={dynamicStyles.menuSectionTitle}>Support</Text>
           <View style={dynamicStyles.menuCard}>
             <MenuItem
               icon={<HeadphonesIcon size={18} color={colors.emerald} />}
-              label="Customer Support 24/7"
+              label="Customer Support"
               color={colors.emeraldGlow}
               onPress={() => router.push('/support')}
               colors={colors}

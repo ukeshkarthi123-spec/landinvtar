@@ -1,215 +1,91 @@
-import { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus, Search, MapPin, TrendingUp, Edit2, Trash2, Eye,
-  RefreshCw, AlertCircle, X, Upload, Check, Loader2, Image as ImageIcon
+  RefreshCw, AlertCircle, Filter, ChevronRight, ChevronLeft,
+  Star, LayoutGrid, List, MoreVertical, Copy,
+  ArrowUpDown, ExternalLink
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { LandProject, InvestmentStatus } from '../types/project';
+import StarRating from '../components/StarRating';
+import clsx from 'clsx';
 
-interface Project {
-  id?: string;
-  name: string;
-  location: string;
-  city: string;
-  state: string;
-  category: string;
-  expected_roi: number;
-  min_investment: number;
-  total_funding: number;
-  raised_funding: number;
-  funding_progress: number;
-  investors_count: number;
-  image: string;
-  is_active: boolean;
-  description: string;
-  created_at?: string;
-}
-
-const CATEGORIES = ['Residential', 'Commercial', 'Farm Land', 'Industrial', 'Luxury Villas'];
+const STATUS_FILTERS: (InvestmentStatus | 'All')[] = ['All', 'Upcoming', 'Active', 'Funded', 'Completed', 'Sold Out'];
 
 const Projects = () => {
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [projects, setProjects] = useState<LandProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<InvestmentStatus | 'All'>('All');
+  const [featuredFilter, setFeaturedFilter] = useState<boolean | 'All'>('All');
+  const [sortBy, setSortBy] = useState<string>('newest');
+  const [viewMode, setViewViewMode] = useState<'table' | 'grid'>('table');
   const navigate = useNavigate();
 
-  // Modal & Form State
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isSubmitting, setIsModalSubmitting] = useState(false);
-  const [editingProject, setEditingProject] = useState<Project | null>(null);
-  const [formData, setFormData] = useState<Project>({
-    name: '',
-    location: '',
-    city: '',
-    state: '',
-    category: 'Residential',
-    expected_roi: 18,
-    min_investment: 500,
-    total_funding: 1000000,
-    raised_funding: 0,
-    funding_progress: 0,
-    investors_count: 0,
-    image: '',
-    is_active: true,
-    description: ''
-  });
+  // Pagination State
+  const [page, setPage] = useState(0);
+  const [rowsPerPage] = useState(10);
+  const [totalCount, setTotalCount] = useState(0);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const fetchProjects = async () => {
+  const fetchProjects = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const { data, error: fetchError } = await supabase
+      let query = supabase
         .from('land_projects')
-        .select('*')
-        .order('created_at', { ascending: false });
+        .select('*', { count: 'exact' });
+
+      // Search
+      if (searchTerm) {
+        query = query.or(`name.ilike.%${searchTerm}%,location.ilike.%${searchTerm}%,project_code.ilike.%${searchTerm}%`);
+      }
+
+      // Status Filter
+      if (statusFilter !== 'All') {
+        query = query.eq('investment_status', statusFilter);
+      }
+
+      // Featured Filter
+      if (featuredFilter !== 'All') {
+        query = query.eq('featured', featuredFilter);
+      }
+
+      // Sorting
+      switch (sortBy) {
+        case 'newest': query = query.order('created_at', { ascending: false }); break;
+        case 'oldest': query = query.order('created_at', { ascending: true }); break;
+        case 'rating': query = query.order('rating', { ascending: false }); break;
+        case 'roi': query = query.order('expected_roi', { ascending: false }); break;
+        case 'investment': query = query.order('minimum_investment', { ascending: true }); break;
+        default: query = query.order('created_at', { ascending: false });
+      }
+
+      // Pagination
+      const from = page * rowsPerPage;
+      const to = from + rowsPerPage - 1;
+      query = query.range(from, to);
+
+      const { data, error: fetchError, count } = await query;
 
       if (fetchError) throw fetchError;
-      setProjects(data || []);
+      setProjects((data || []) as LandProject[]);
+      setTotalCount(count || 0);
     } catch (err: any) {
       console.error('[Projects] Fetch Error:', err);
       setError(err.message || 'Failed to fetch projects');
     } finally {
       setLoading(false);
     }
-  };
+  }, [searchTerm, statusFilter, featuredFilter, sortBy, page, rowsPerPage]);
 
-  useEffect(() => { fetchProjects(); }, []);
-
-  const handleOpenModal = (project: Project | null = null) => {
-    if (project) {
-      setEditingProject(project);
-      setFormData({
-        name: project.name || '',
-        location: project.location || '',
-        city: project.city || '',
-        state: project.state || '',
-        category: project.category || 'Residential',
-        expected_roi: project.expected_roi || 0,
-        min_investment: project.min_investment || 500,
-        total_funding: project.total_funding || 0,
-        raised_funding: project.raised_funding || 0,
-        funding_progress: project.funding_progress || 0,
-        investors_count: project.investors_count || 0,
-        image: project.image || '',
-        is_active: project.is_active ?? true,
-        description: project.description || ''
-      });
-    } else {
-      setEditingProject(null);
-      setFormData({
-        name: '',
-        location: '',
-        city: '',
-        state: '',
-        category: 'Residential',
-        expected_roi: 18,
-        min_investment: 500,
-        total_funding: 1000000,
-        raised_funding: 0,
-        funding_progress: 0,
-        investors_count: 0,
-        image: '',
-        is_active: true,
-        description: ''
-      });
-    }
-    setIsModalOpen(true);
-  };
-
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsModalSubmitting(true);
-    try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${crypto.randomUUID()}.${fileExt}`;
-      const filePath = `projects/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('project-images')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('project-images')
-        .getPublicUrl(filePath);
-
-      setFormData({ ...formData, image: publicUrl });
-    } catch (err: any) {
-      console.error('[Projects] Image Upload Error:', err);
-      alert(err.message || 'Image upload failed');
-    } finally {
-      setIsModalSubmitting(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsModalSubmitting(true);
-
-    try {
-      // Auto-calculate progress
-      const progress = Math.min(100, Math.round((formData.raised_funding / formData.total_funding) * 100));
-
-      // WHITELIST: Explicitly define columns to send to prevent RLS errors
-      const submissionData = {
-        name: formData.name,
-        location: formData.location,
-        city: formData.city,
-        state: formData.state,
-        category: formData.category,
-        expected_roi: formData.expected_roi,
-        min_investment: formData.min_investment,
-        total_funding: formData.total_funding,
-        raised_funding: formData.raised_funding,
-        funding_progress: progress,
-        investors_count: formData.investors_count,
-        image: formData.image,
-        is_active: formData.is_active,
-        description: formData.description,
-        updated_at: new Date().toISOString()
-      };
-
-      if (editingProject?.id) {
-        console.log('[Projects] Updating project:', editingProject.id);
-        const { error: updateError } = await supabase
-          .from('land_projects')
-          .update(submissionData)
-          .eq('id', editingProject.id);
-
-        if (updateError) {
-          console.error('[Projects] Update Error:', updateError);
-          throw updateError;
-        }
-      } else {
-        console.log('[Projects] Creating new project');
-        const { error: insertError } = await supabase
-          .from('land_projects')
-          .insert([submissionData]);
-
-        if (insertError) {
-          console.error('[Projects] Insert Error:', insertError);
-          throw insertError;
-        }
-      }
-
-      setIsModalOpen(false);
-      fetchProjects();
-    } catch (err: any) {
-      console.error('[Projects] Submission Error:', err);
-      alert(err.message || 'Action failed. Check console for details.');
-    } finally {
-      setIsModalSubmitting(false);
-    }
-  };
+  useEffect(() => {
+    fetchProjects();
+  }, [fetchProjects]);
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this project?')) return;
+    if (!window.confirm('Are you sure you want to delete this project? This action cannot be undone.')) return;
 
     try {
       const { error: deleteError } = await supabase
@@ -217,229 +93,340 @@ const Projects = () => {
         .delete()
         .eq('id', id);
 
-      if (deleteError) {
-        console.error('[Projects] Delete Error:', deleteError);
-        throw deleteError;
-      }
-
+      if (deleteError) throw deleteError;
       fetchProjects();
     } catch (err: any) {
-      console.error('[Projects] Delete Exception:', err);
+      console.error('[Projects] Delete Error:', err);
       alert(err.message || 'Delete failed');
     }
   };
 
-  const filteredProjects = projects.filter(p =>
-    p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.location?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const handleDuplicate = async (project: LandProject) => {
+    try {
+      const { id, created_at, updated_at, ...rest } = project;
+      const duplicateData = {
+        ...rest,
+        name: `${project.name} (Copy)`,
+        project_code: project.project_code ? `${project.project_code}-COPY` : '',
+        is_active: false,
+        investment_status: 'Upcoming'
+      };
+
+      const { error: insertError } = await supabase
+        .from('land_projects')
+        .insert([duplicateData]);
+
+      if (insertError) throw insertError;
+      fetchProjects();
+      alert('Project duplicated successfully!');
+    } catch (err: any) {
+      console.error('[Projects] Duplicate Error:', err);
+      alert(err.message || 'Duplicate failed');
+    }
+  };
+
+  const getStatusColor = (status: InvestmentStatus) => {
+    switch (status) {
+      case 'Upcoming': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400';
+      case 'Active': return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400';
+      case 'Funded': return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400';
+      case 'Completed': return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400';
+      case 'Sold Out': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
+      default: return 'bg-slate-100 text-slate-700';
+    }
+  };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-[1600px] mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Land Projects</h1>
-          <p className="text-slate-500 text-sm">Manage {projects.length} total properties.</p>
+          <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Land Project Management</h1>
+          <p className="text-slate-500 font-medium">Control your real estate inventory and investment flow.</p>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={fetchProjects} className="p-2 text-slate-500 hover:bg-white dark:hover:bg-slate-900 rounded-lg transition-all border border-transparent hover:border-slate-200">
-            <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
-          </button>
+          <div className="flex bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-1 shadow-sm">
+            <button
+              onClick={() => setViewViewMode('table')}
+              className={clsx("p-2 rounded-lg transition-all", viewMode === 'table' ? "bg-slate-100 dark:bg-slate-800 text-emerald-600" : "text-slate-400")}
+            >
+              <List size={20} />
+            </button>
+            <button
+              onClick={() => setViewViewMode('grid')}
+              className={clsx("p-2 rounded-lg transition-all", viewMode === 'grid' ? "bg-slate-100 dark:bg-slate-800 text-emerald-600" : "text-slate-400")}
+            >
+              <LayoutGrid size={20} />
+            </button>
+          </div>
           <button
-            onClick={() => handleOpenModal()}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl flex items-center gap-2 text-sm font-bold transition-all shadow-lg shadow-emerald-600/20"
+            onClick={() => navigate('/admin/projects/new')}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-2xl flex items-center gap-2 text-sm font-black uppercase tracking-wider transition-all shadow-xl shadow-emerald-600/20 active:scale-95"
           >
-            <Plus size={18} />
-            New Project
+            <Plus size={20} strokeWidth={3} />
+            Add New Project
           </button>
         </div>
       </div>
 
-      {/* Search Bar */}
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-        <input
-          type="text"
-          placeholder="Search by name, location..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-        />
+      {/* Filters Bar */}
+      <div className="bg-white dark:bg-slate-900 rounded-[32px] border border-slate-100 dark:border-slate-800 shadow-sm p-4 flex flex-col lg:flex-row gap-4 items-center">
+        <div className="relative flex-1 w-full">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+          <input
+            type="text"
+            placeholder="Search projects, location, code..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 rounded-2xl pl-12 pr-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500 dark:text-white"
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+          <div className="flex items-center gap-2">
+            <Filter size={16} className="text-slate-400" />
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+              className="bg-slate-50 dark:bg-slate-800 border-none rounded-xl px-4 py-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+            >
+              {STATUS_FILTERS.map(s => <option key={s} value={s}>{s} Status</option>)}
+            </select>
+          </div>
+
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="bg-slate-50 dark:bg-slate-800 border-none rounded-xl px-4 py-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+          >
+            <option value="newest">Newest First</option>
+            <option value="oldest">Oldest First</option>
+            <option value="rating">Highest Rating</option>
+            <option value="roi">Highest ROI</option>
+            <option value="investment">Lowest Investment</option>
+          </select>
+
+          <button
+            onClick={() => fetchProjects()}
+            className="p-3 text-slate-400 hover:text-emerald-500 bg-slate-50 dark:bg-slate-800 rounded-xl transition-all"
+          >
+            <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
       </div>
 
-      {error && <div className="p-4 bg-red-50 text-red-600 rounded-xl border border-red-100 flex items-center gap-3 font-medium">
-        <AlertCircle size={18}/> {error}
-      </div>}
+      {error && (
+        <div className="p-4 bg-red-50 text-red-600 rounded-2xl border border-red-100 flex items-center gap-3 font-bold shadow-sm">
+          <AlertCircle size={20}/> {error}
+        </div>
+      )}
 
-      {/* Project Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {loading ? (
-          [1, 2, 3].map(i => <div key={i} className="h-[400px] bg-white dark:bg-slate-900 rounded-2xl animate-pulse border border-slate-200" />)
-        ) : filteredProjects.length === 0 ? (
-          <div className="col-span-full py-20 text-center text-slate-500 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-300">
-            No projects found.
+      {/* Main Content */}
+      {viewMode === 'table' ? (
+        <div className="bg-white dark:bg-slate-900 rounded-[32px] border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50/50 dark:bg-slate-800/50 text-slate-400 text-[10px] uppercase font-black tracking-[2px]">
+                  <th className="px-6 py-5">Project</th>
+                  <th className="px-6 py-5">Rating</th>
+                  <th className="px-6 py-5">Investment</th>
+                  <th className="px-6 py-5">ROI & Duration</th>
+                  <th className="px-6 py-5">Funding Progress</th>
+                  <th className="px-6 py-5">Status</th>
+                  <th className="px-6 py-5 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {loading ? (
+                  [1, 2, 3, 4, 5].map(i => (
+                    <tr key={i} className="animate-pulse">
+                      <td colSpan={7} className="px-6 py-8"><div className="h-4 bg-slate-100 dark:bg-slate-800 rounded w-full"></div></td>
+                    </tr>
+                  ))
+                ) : projects.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-20 text-center text-slate-400 font-bold">No projects found matching your criteria.</td>
+                  </tr>
+                ) : projects.map((project) => (
+                  <tr key={project.id} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-4">
+                        <div className="relative w-16 h-12 rounded-xl overflow-hidden shadow-sm flex-shrink-0">
+                          <img src={project.cover_image || project.image || 'https://via.placeholder.com/800x400?text=No+Image'} className="w-full h-full object-cover" alt="" />
+                          {project.featured && (
+                            <div className="absolute top-1 left-1 bg-amber-400 p-0.5 rounded shadow-lg"><Star size={8} className="fill-white text-white" /></div>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-black text-slate-900 dark:text-white truncate group-hover:text-emerald-600 transition-colors">{project.name}</p>
+                          <div className="flex items-center gap-1 text-[10px] font-bold text-slate-400 mt-0.5">
+                            <MapPin size={10} className="text-emerald-500" />
+                            <span className="truncate">{project.location}, {project.city}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <StarRating rating={project.rating} size={14} />
+                      <span className="text-[10px] font-black text-slate-400 mt-1 block">{project.rating.toFixed(1)} / 5.0</span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <p className="text-sm font-black text-slate-900 dark:text-white">₹{project.minimum_investment.toLocaleString()}</p>
+                      <p className="text-[10px] font-bold text-slate-400">Min. Stake</p>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2 text-emerald-600 font-black">
+                        <TrendingUp size={14} />
+                        <span className="text-sm">{project.expected_roi}%</span>
+                      </div>
+                      <p className="text-[10px] font-bold text-slate-400">{project.duration || 'N/A'}</p>
+                    </td>
+                    <td className="px-6 py-4 w-64">
+                      <div className="flex justify-between items-center text-[10px] font-black mb-2 uppercase">
+                        <span className="text-slate-400">₹{(project.raised_amount / 100000).toFixed(1)}L Raised</span>
+                        <span className="text-emerald-600">{Math.round((project.raised_amount / (project.funding_goal || 1)) * 100)}%</span>
+                      </div>
+                      <div className="h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden shadow-inner">
+                        <div
+                          className="h-full bg-emerald-500 rounded-full transition-all duration-1000"
+                          style={{ width: `${Math.min(100, (project.raised_amount / (project.funding_goal || 1)) * 100)}%` }}
+                        />
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={clsx("px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border", getStatusColor(project.investment_status))}>
+                        {project.investment_status}
+                      </span>
+                      {!project.is_active && (
+                        <span className="ml-2 text-[9px] font-black text-red-500 uppercase">Draft</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => navigate(`/admin/projects/${project.id}`)}
+                          className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-all"
+                          title="View Details"
+                        >
+                          <Eye size={18} />
+                        </button>
+                        <button
+                          onClick={() => navigate(`/admin/projects/${project.id}/edit`)}
+                          className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-all"
+                          title="Edit Project"
+                        >
+                          <Edit2 size={18} />
+                        </button>
+                        <button
+                          onClick={() => handleDuplicate(project)}
+                          className="p-2 text-slate-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-lg transition-all"
+                          title="Duplicate"
+                        >
+                          <Copy size={18} />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(project.id)}
+                          className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
+                          title="Delete"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        ) : (
-          filteredProjects.map((project) => (
-            <div key={project.id} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden group hover:shadow-xl transition-all">
+
+          {/* Table Pagination */}
+          <div className="px-6 py-5 bg-slate-50/50 dark:bg-slate-800/50 flex items-center justify-between border-t border-slate-100 dark:border-slate-800">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+              Showing <span className="text-slate-900 dark:text-white">{Math.min(projects.length, rowsPerPage)}</span> of {totalCount} Projects
+            </p>
+            <div className="flex gap-2">
+              <button
+                disabled={page === 0 || loading}
+                onClick={() => setPage(prev => prev - 1)}
+                className="p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl disabled:opacity-30 hover:bg-slate-50 transition-all shadow-sm"
+              >
+                <ChevronLeft size={18}/>
+              </button>
+              <button
+                disabled={(page + 1) * rowsPerPage >= totalCount || loading}
+                onClick={() => setPage(prev => prev + 1)}
+                className="p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl disabled:opacity-30 hover:bg-slate-50 transition-all shadow-sm"
+              >
+                <ChevronRight size={18}/>
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          {loading ? (
+            [1, 2, 3, 4].map(i => <div key={i} className="h-96 bg-white dark:bg-slate-900 rounded-[32px] border border-slate-100 animate-pulse" />)
+          ) : projects.map(project => (
+            <div key={project.id} className="bg-white dark:bg-slate-900 rounded-[32px] border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden group hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 flex flex-col">
               <div className="relative h-48">
-                <img src={project.image || 'https://via.placeholder.com/800x400?text=No+Image'} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt={project.name} />
+                <img src={project.cover_image || project.image} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt="" />
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 to-transparent" />
                 <div className="absolute top-4 right-4 flex gap-2">
-                  <button onClick={() => handleOpenModal(project)} className="p-2 bg-white/90 dark:bg-slate-900/90 rounded-lg text-slate-600 hover:text-emerald-600 shadow shadow-black/10 transition-colors">
-                    <Edit2 size={16} />
-                  </button>
-                  <button onClick={() => handleDelete(project.id!)} className="p-2 bg-white/90 dark:bg-slate-900/90 rounded-lg text-slate-600 hover:text-red-600 shadow shadow-black/10 transition-colors">
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-                <div className="absolute bottom-4 left-4">
-                  <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${project.is_active ? 'bg-emerald-500 text-white' : 'bg-slate-500 text-white'}`}>
-                    {project.is_active ? 'Active' : 'Draft'}
+                  <span className={clsx("px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest backdrop-blur-md", getStatusColor(project.investment_status))}>
+                    {project.investment_status}
                   </span>
                 </div>
+                {project.featured && (
+                  <div className="absolute top-4 left-4 bg-amber-400 text-white px-2 py-1 rounded-lg flex items-center gap-1 shadow-lg">
+                    <Star size={10} className="fill-white" />
+                    <span className="text-[10px] font-black uppercase">Featured</span>
+                  </div>
+                )}
+                <div className="absolute bottom-4 left-4 right-4">
+                  <h3 className="text-white font-black text-lg truncate tracking-tight">{project.name}</h3>
+                  <p className="text-slate-300 text-xs font-bold flex items-center gap-1 mt-1 truncate">
+                    <MapPin size={12} className="text-emerald-400" />
+                    {project.location}
+                  </p>
+                </div>
               </div>
-              <div className="p-5 space-y-4">
-                <div>
-                  <h3 className="text-lg font-bold truncate text-slate-900 dark:text-slate-100">{project.name}</h3>
-                  <div className="flex items-center gap-1 text-slate-500 text-sm mt-1">
-                    <MapPin size={14} className="text-emerald-500" />
-                    <span className="truncate">{project.location}, {project.city}</span>
+              <div className="p-6 flex-1 flex flex-col space-y-4">
+                <div className="flex justify-between items-center">
+                  <StarRating rating={project.rating} size={14} />
+                  <div className="text-emerald-500 font-black text-sm flex items-center gap-1">
+                    <TrendingUp size={16} />
+                    {project.expected_roi}%
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-slate-50 dark:bg-slate-800 p-2.5 rounded-xl border border-slate-100">
-                    <p className="text-[10px] text-slate-500 uppercase font-bold">Expected ROI</p>
-                    <p className="text-emerald-600 font-bold text-lg">{project.expected_roi}%</p>
-                  </div>
-                  <div className="bg-slate-50 dark:bg-slate-800 p-2.5 rounded-xl border border-slate-100">
-                    <p className="text-[10px] text-slate-500 uppercase font-bold">Min Invest</p>
-                    <p className="text-slate-900 dark:text-slate-100 font-bold text-lg">₹{project.min_investment}</p>
-                  </div>
-                </div>
+
                 <div className="space-y-2">
-                  <div className="flex justify-between text-xs font-bold">
-                    <span className="text-slate-500">Progress</span>
-                    <span className="text-emerald-600">{project.funding_progress}%</span>
+                  <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    <span>Funding</span>
+                    <span className="text-emerald-500">{Math.round((project.raised_amount / (project.funding_goal || 1)) * 100)}%</span>
                   </div>
                   <div className="h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                    <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${project.funding_progress}%` }} />
+                    <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(project.raised_amount / (project.funding_goal || 1)) * 100}%` }} />
                   </div>
                 </div>
-                <button
-                  onClick={() => navigate(`/admin/projects/${project.id}`)}
-                  className="w-full py-2.5 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-bold rounded-xl flex items-center justify-center gap-2 hover:bg-emerald-600 transition-colors"
-                >
-                  <Eye size={18} /> View Details
-                </button>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
 
-      {/* Project Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between p-6 border-b border-slate-100 dark:border-slate-800">
-              <h2 className="text-xl font-bold">{editingProject ? 'Edit Project' : 'New Land Project'}</h2>
-              <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X size={20}/></button>
-            </div>
-
-            <form onSubmit={handleSubmit} className="p-6 overflow-y-auto max-h-[80vh] grid grid-cols-2 gap-6">
-              {/* Image Upload Area */}
-              <div className="col-span-2 space-y-2">
-                <label className="text-xs font-bold uppercase text-slate-500">Project Cover Image</label>
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  className="relative h-40 w-full border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl flex flex-col items-center justify-center gap-2 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 transition-colors cursor-pointer group"
-                >
-                  {formData.image ? (
-                    <>
-                      <img src={formData.image} className="absolute inset-0 w-full h-full object-cover rounded-2xl" alt="Preview" />
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity rounded-2xl"><Upload size={24}/></div>
-                    </>
-                  ) : (
-                    <>
-                      <ImageIcon className="text-slate-400" size={32} />
-                      <span className="text-sm font-medium text-slate-500">Click to upload or drag image</span>
-                    </>
-                  )}
-                  <input type="file" ref={fileInputRef} onChange={handleImageUpload} className="hidden" accept="image/*" />
+                <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex gap-2">
+                  <button
+                    onClick={() => navigate(`/admin/projects/${project.id}`)}
+                    className="flex-1 py-3 bg-slate-900 dark:bg-slate-800 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Eye size={14}/> Details
+                  </button>
+                  <button
+                    onClick={() => navigate(`/admin/projects/${project.id}/edit`)}
+                    className="p-3 border border-slate-200 dark:border-slate-700 rounded-2xl text-slate-400 hover:text-blue-500 hover:bg-blue-50 transition-all"
+                  >
+                    <Edit2 size={16}/>
+                  </button>
                 </div>
               </div>
-
-              {/* Form Fields */}
-              <div className="space-y-2">
-                <label className="text-xs font-bold uppercase text-slate-500">Project Name</label>
-                <input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500" />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-bold uppercase text-slate-500">Category</label>
-                <select value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500">
-                  {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-bold uppercase text-slate-500">Location</label>
-                <input required type="text" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})} className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500" />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-bold uppercase text-slate-500">City</label>
-                <input required type="text" value={formData.city} onChange={e => setFormData({...formData, city: e.target.value})} className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500" />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-bold uppercase text-slate-500">State</label>
-                <input required type="text" value={formData.state} onChange={e => setFormData({...formData, state: e.target.value})} className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500" />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-bold uppercase text-slate-500">Expected ROI (%)</label>
-                <input required type="number" step="0.1" value={formData.expected_roi} onChange={e => setFormData({...formData, expected_roi: parseFloat(e.target.value)})} className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500" />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-bold uppercase text-slate-500">Min Investment (₹)</label>
-                <input required type="number" value={formData.min_investment} onChange={e => setFormData({...formData, min_investment: parseFloat(e.target.value)})} className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500" />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-bold uppercase text-slate-500">Total Funding Goal (₹)</label>
-                <input required type="number" value={formData.total_funding} onChange={e => setFormData({...formData, total_funding: parseFloat(e.target.value)})} className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500" />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-bold uppercase text-slate-500">Raised Funding (₹)</label>
-                <input required type="number" value={formData.raised_funding} onChange={e => setFormData({...formData, raised_funding: parseFloat(e.target.value)})} className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500" />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-bold uppercase text-slate-500">Status</label>
-                <select value={formData.is_active ? 'Active' : 'Draft'} onChange={e => setFormData({...formData, is_active: e.target.value === 'Active'})} className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500">
-                  <option value="Active">Active</option>
-                  <option value="Draft">Draft</option>
-                </select>
-              </div>
-              <div className="col-span-2 space-y-2">
-                <label className="text-xs font-bold uppercase text-slate-500">Description</label>
-                <textarea rows={3} value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500" />
-              </div>
-
-              <div className="col-span-2 pt-6 border-t border-slate-100 dark:border-slate-800 flex gap-4">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="flex-1 py-3 border border-slate-200 dark:border-slate-800 rounded-2xl font-bold hover:bg-slate-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="flex-1 py-3 bg-emerald-600 text-white rounded-2xl font-bold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 disabled:opacity-50"
-                >
-                  {isSubmitting ? <Loader2 className="animate-spin" size={20}/> : <Check size={20}/>}
-                  {editingProject ? 'Update Project' : 'Create Project'}
-                </button>
-              </div>
-            </form>
-          </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

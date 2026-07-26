@@ -3,7 +3,7 @@ import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   ActivityIndicator, ScrollView, Alert, Modal, KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { Smartphone, Plus, Trash2, Star, CheckCircle2, AlertCircle, X, Pencil } from 'lucide-react-native';
+import { Smartphone, Plus, Trash2, Check, AlertCircle, Pencil, X } from 'lucide-react-native';
 import { useTheme } from '@/context/ThemeContext';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { supabase } from '@/lib/supabase';
@@ -13,21 +13,22 @@ import type { UpiId } from '@/types/database';
 export default function UpiIdsScreen() {
   const { colors, isDark } = useTheme();
   const { profile } = useApp();
-  const [upis, setUpis] = useState<UpiId[]>([]);
+  const [upis, setUpiIds] = useState<UpiId[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [verifying, setVerifying] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [newUpi, setNewUpi] = useState('');
+
+  const [upiId, setUpiId] = useState('');
 
   const fetchUpis = useCallback(async () => {
     const userId = profile?.id;
     if (!userId) {
+      setUpiIds([]);
+      setLoading(false);
       return;
     }
-
     try {
       const { data, error: err } = await supabase
         .from('upi_ids')
@@ -37,8 +38,7 @@ export default function UpiIdsScreen() {
         .order('created_at', { ascending: false });
 
       if (err) throw err;
-      console.log(`[UPI] Fetched ${data?.length || 0} IDs`);
-      setUpis((data ?? []) as UpiId[]);
+      setUpiIds((data ?? []) as UpiId[]);
       setError(null);
     } catch (err: any) {
       setError(err.message || 'Unable to load UPI IDs.');
@@ -52,29 +52,20 @@ export default function UpiIdsScreen() {
   }, [fetchUpis]);
 
   const resetForm = () => {
-    setNewUpi('');
+    setUpiId('');
     setError(null);
     setEditingId(null);
-  };
-
-  const handleOpenEdit = (upi: UpiId) => {
-    setNewUpi(upi.upi_id);
-    setEditingId(upi.id);
-    setShowModal(true);
   };
 
   const handleSave = async () => {
     const userId = profile?.id;
     if (!userId) {
-      setError('Please sign in again and try once more.');
+      setError('Please sign in again.');
       return;
     }
 
-    const trimmed = newUpi.trim().toLowerCase();
-    const upiRegex = /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/;
-
-    if (!upiRegex.test(trimmed)) {
-      setError('Please enter a valid UPI ID (e.g. name@bank).');
+    if (!upiId.trim() || !upiId.includes('@')) {
+      setError('Please enter a valid UPI ID (e.g., name@bank).');
       return;
     }
 
@@ -82,26 +73,17 @@ export default function UpiIdsScreen() {
     setError(null);
 
     try {
-      if (editingId) {
-        const { error: updateError } = await supabase
-          .from('upi_ids')
-          .update({ upi_id: trimmed, is_verified: false, updated_at: new Date().toISOString() })
-          .eq('id', editingId)
-          .eq('user_id', userId);
+      const payload = {
+        user_id: userId,
+        upi_id: upiId.trim().toLowerCase(),
+      };
 
+      if (editingId) {
+        const { error: updateError } = await supabase.from('upi_ids').update(payload).eq('id', editingId).eq('user_id', userId);
         if (updateError) throw updateError;
       } else {
         const isFirst = upis.length === 0;
-        const { error: insertError } = await supabase
-          .from('upi_ids')
-          .insert({
-            user_id: userId,
-            upi_id: trimmed,
-            is_verified: false,
-            is_default: isFirst,
-            created_at: new Date().toISOString(),
-          });
-
+        const { error: insertError } = await supabase.from('upi_ids').insert({ ...payload, is_default: isFirst, is_verified: true });
         if (insertError) throw insertError;
       }
 
@@ -115,222 +97,91 @@ export default function UpiIdsScreen() {
     }
   };
 
-  const handleVerify = async (id: string) => {
-    const userId = profile?.id;
-    if (!userId) return;
-
-    setVerifying(id);
-    try {
-      await new Promise(resolve => setTimeout(resolve, 1200));
-      const { error: updateError } = await supabase
-        .from('upi_ids')
-        .update({ is_verified: true })
-        .eq('id', id)
-        .eq('user_id', userId);
-
-      if (updateError) throw updateError;
-      await fetchUpis();
-      Alert.alert('Verified', 'Your UPI ID has been successfully verified.');
-    } catch (err: any) {
-      Alert.alert('Verification Failed', err.message || 'Unable to verify UPI ID.');
-    } finally {
-      setVerifying(null);
-    }
-  };
-
-  const handleSetDefault = async (id: string) => {
-    const userId = profile?.id;
-    if (!userId) return;
-
-    try {
-      await supabase.from('upi_ids').update({ is_default: false }).eq('user_id', userId);
-      const { error: updateError } = await supabase
-        .from('upi_ids')
-        .update({ is_default: true })
-        .eq('id', id)
-        .eq('user_id', userId);
-
-      if (updateError) throw updateError;
-      await fetchUpis();
-      Alert.alert('Success', 'Default UPI ID updated.');
-    } catch (err: any) {
-      Alert.alert('Error', err.message || 'Unable to update default UPI ID.');
-    }
-  };
-
-  const handleDelete = (id: string, isDefault: boolean) => {
-    Alert.alert(
-      'Delete UPI ID',
-      'Are you sure you want to remove this UPI ID?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            const userId = profile?.id;
-            if (!userId) return;
-
-            try {
-              const { error: delError } = await supabase
-                .from('upi_ids')
-                .delete()
-                .eq('id', id)
-                .eq('user_id', userId);
-
-              if (delError) throw delError;
-
-              if (isDefault) {
-                const { data: remaining } = await supabase
-                  .from('upi_ids')
-                  .select('id')
-                  .eq('user_id', userId)
-                  .order('created_at', { ascending: false })
-                  .limit(1);
-
-                if (remaining?.[0]?.id) {
-                  await supabase
-                    .from('upi_ids')
-                    .update({ is_default: true })
-                    .eq('id', remaining[0].id)
-                    .eq('user_id', userId);
-                }
-              }
-
-              await fetchUpis();
-            } catch (err: any) {
-              Alert.alert('Error', err.message || 'Unable to delete UPI ID.');
-            }
-          },
+  const handleDelete = (id: string) => {
+    Alert.alert('Delete UPI ID', 'Are you sure?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await supabase.from('upi_ids').delete().eq('id', id);
+            await fetchUpis();
+          } catch (err: any) {
+            Alert.alert('Error', err.message);
+          }
         },
-      ]
-    );
+      },
+    ]);
   };
-
-  const dynamicStyles = getDynamicStyles(colors, isDark);
 
   return (
-    <View style={dynamicStyles.container}>
+    <View style={[styles.container, { backgroundColor: colors.bg }]}>
       <ScreenHeader
         title="UPI IDs"
         rightAction={
-          <TouchableOpacity style={dynamicStyles.addBtn} onPress={() => { resetForm(); setShowModal(true); }}>
-            <Plus size={20} color={colors.emerald} />
+          <TouchableOpacity style={styles.addHeaderBtn} onPress={() => { resetForm(); setShowModal(true); }}>
+            <Plus size={20} color="#00E38C" />
           </TouchableOpacity>
         }
       />
 
       {loading ? (
-        <View style={dynamicStyles.centered}>
-          <ActivityIndicator color={colors.emerald} size="large" />
-        </View>
+        <View style={styles.centered}><ActivityIndicator color="#00E38C" size="large" /></View>
       ) : upis.length === 0 ? (
-        <View style={dynamicStyles.centered}>
-          <Smartphone size={48} color={colors.textMuted} />
-          <Text style={dynamicStyles.emptyTitle}>No UPI IDs</Text>
-          <Text style={dynamicStyles.emptySub}>Add a UPI ID for fast and secure payments.</Text>
-          <TouchableOpacity style={dynamicStyles.emptyBtn} onPress={() => { resetForm(); setShowModal(true); }}>
-            <Plus size={16} color="#fff" />
-            <Text style={dynamicStyles.emptyBtnText}>Add UPI ID</Text>
+        <View style={styles.centered}>
+          <Smartphone size={48} color="#444" />
+          <Text style={styles.emptyTitle}>No UPI IDs Linked</Text>
+          <Text style={styles.emptySub}>Add a UPI ID for instant withdrawals.</Text>
+          <TouchableOpacity style={styles.emptyBtn} onPress={() => { resetForm(); setShowModal(true); }}>
+            <Text style={styles.emptyBtnText}>Link New UPI ID</Text>
           </TouchableOpacity>
         </View>
       ) : (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={dynamicStyles.scroll}>
-          {error && (
-            <View style={dynamicStyles.errorBox}>
-              <AlertCircle size={14} color={colors.error} />
-              <Text style={dynamicStyles.errorText}>{error}</Text>
-            </View>
-          )}
-          {upis.map((upi) => (
-            <View key={upi.id} style={[dynamicStyles.upiCard, upi.is_default && dynamicStyles.activeCard]}>
-              <View style={[dynamicStyles.upiIcon, { backgroundColor: isDark ? colors.bgCard2 : '#FFFBEB' }]}>
-                <Smartphone size={20} color="#F59E0B" />
+        <ScrollView contentContainerStyle={styles.scroll}>
+          {upis.map((item) => (
+            <View key={item.id} style={styles.upiCard}>
+              <View style={styles.upiIconBox}>
+                <Smartphone size={20} color="#00E38C" />
               </View>
               <View style={{ flex: 1 }}>
-                <View style={dynamicStyles.upiHeader}>
-                  <Text style={dynamicStyles.upiIdText}>{upi.upi_id}</Text>
-                  {upi.is_default && (
-                    <View style={dynamicStyles.defaultBadge}>
-                      <CheckCircle2 size={10} color={colors.emerald} />
-                      <Text style={dynamicStyles.defaultBadgeText}>Default</Text>
-                    </View>
-                  )}
-                </View>
-                <View style={dynamicStyles.statusRow}>
-                  {upi.is_verified ? (
-                    <View style={dynamicStyles.verifiedTag}>
-                      <CheckCircle2 size={12} color={colors.success} />
-                      <Text style={dynamicStyles.verifiedText}>Verified</Text>
-                    </View>
-                  ) : verifying === upi.id ? (
-                    <View style={dynamicStyles.verifyTag}>
-                      <ActivityIndicator size={10} color={colors.warning} />
-                      <Text style={dynamicStyles.verifyingText}>Verifying...</Text>
-                    </View>
-                  ) : (
-                    <TouchableOpacity style={dynamicStyles.verifyBtn} onPress={() => handleVerify(upi.id)}>
-                      <Text style={dynamicStyles.verifyBtnText}>Verify Now</Text>
-                    </TouchableOpacity>
-                  )}
+                <Text style={styles.upiIdText}>{item.upi_id}</Text>
+                <View style={styles.verifiedRow}>
+                    <Check size={12} color="#00E38C" />
+                    <Text style={styles.verifiedText}>Verified</Text>
                 </View>
               </View>
-              <View style={dynamicStyles.cardActions}>
-                {!upi.is_default && (
-                  <TouchableOpacity style={dynamicStyles.iconBtn} onPress={() => handleSetDefault(upi.id)} hitSlop={8}>
-                    <Star size={16} color={colors.warning} />
-                  </TouchableOpacity>
-                )}
-                <TouchableOpacity style={dynamicStyles.iconBtn} onPress={() => handleOpenEdit(upi)} hitSlop={8}>
-                  <Pencil size={16} color={colors.textSecondary} />
-                </TouchableOpacity>
-                <TouchableOpacity style={dynamicStyles.iconBtn} onPress={() => handleDelete(upi.id, upi.is_default)} hitSlop={8}>
-                  <Trash2 size={16} color={colors.error} />
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity onPress={() => handleDelete(item.id)}>
+                <Trash2 size={18} color="#EF4444" />
+              </TouchableOpacity>
             </View>
           ))}
         </ScrollView>
       )}
 
       <Modal visible={showModal} animationType="slide" transparent>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={dynamicStyles.modalOverlay}>
-          <View style={dynamicStyles.modalContent}>
-            <View style={dynamicStyles.modalHeader}>
-              <Text style={dynamicStyles.modalTitle}>{editingId ? 'Edit UPI ID' : 'Add UPI ID'}</Text>
-              <TouchableOpacity onPress={() => setShowModal(false)} style={dynamicStyles.closeBtn}>
-                <X size={20} color={colors.textPrimary} />
-              </TouchableOpacity>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Link UPI ID</Text>
+              <TouchableOpacity onPress={() => setShowModal(false)}><X size={24} color="#fff" /></TouchableOpacity>
             </View>
-
-            <View style={dynamicStyles.inputGroup}>
-              <Text style={dynamicStyles.inputLabel}>UPI ID *</Text>
-              <TextInput
-                style={dynamicStyles.input}
-                placeholder="yourname@bank"
-                placeholderTextColor={colors.textMuted}
-                autoCapitalize="none"
-                autoCorrect={false}
-                value={newUpi}
-                onChangeText={setNewUpi}
-              />
+            <Text style={styles.inputLabel}>Enter UPI ID</Text>
+            <View style={styles.inputWrapper}>
+                <TextInput
+                    style={styles.input}
+                    placeholder="example@upi"
+                    placeholderTextColor="#666"
+                    autoCapitalize="none"
+                    value={upiId}
+                    onChangeText={setUpiId}
+                    autoFocus
+                />
             </View>
-
-            {error && (
-              <View style={[dynamicStyles.errorBox, { marginTop: 10 }]}>
-                <AlertCircle size={14} color={colors.error} />
-                <Text style={dynamicStyles.errorText}>{error}</Text>
-              </View>
-            )}
-
-            <View style={dynamicStyles.modalActions}>
-              <TouchableOpacity style={dynamicStyles.cancelBtn} onPress={() => { setShowModal(false); resetForm(); }}>
-                <Text style={dynamicStyles.cancelBtnText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={dynamicStyles.saveBtn} onPress={handleSave} disabled={saving}>
-                {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={dynamicStyles.saveBtnText}>{editingId ? 'Save' : 'Add'}</Text>}
-              </TouchableOpacity>
-            </View>
+            {error && <Text style={styles.errorText}>{error}</Text>}
+            <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={saving}>
+                {saving ? <ActivityIndicator color="#000" /> : <Text style={styles.saveBtnText}>Verify & Save</Text>}
+            </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -338,87 +189,28 @@ export default function UpiIdsScreen() {
   );
 }
 
-function getDynamicStyles(colors: ReturnType<typeof useTheme>['colors'], isDark: boolean) {
-  return StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.bg },
-    addBtn: {
-      width: 40, height: 40, borderRadius: 12,
-      backgroundColor: colors.emeraldGlow, alignItems: 'center', justifyContent: 'center',
-    },
-    centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, paddingHorizontal: 40 },
-    scroll: { padding: 20 },
-    errorBox: {
-      flexDirection: 'row', alignItems: 'flex-start', gap: 8,
-      backgroundColor: 'rgba(239,68,68,0.1)', borderRadius: 12, padding: 12,
-      borderWidth: 1, borderColor: colors.error + '33', marginBottom: 16,
-    },
-    errorText: { color: colors.error, fontSize: 13, lineHeight: 18, flex: 1 },
-    emptyTitle: { color: colors.textPrimary, fontSize: 18, fontWeight: '800', marginTop: 8 },
-    emptySub: { color: colors.textSecondary, fontSize: 14, textAlign: 'center', lineHeight: 20 },
-    emptyBtn: {
-      flexDirection: 'row', alignItems: 'center', gap: 8,
-      backgroundColor: colors.emerald, borderRadius: 14, paddingHorizontal: 24, paddingVertical: 14,
-      marginTop: 12,
-    },
-    emptyBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-    upiCard: {
-      flexDirection: 'row', alignItems: 'center', gap: 16,
-      backgroundColor: colors.bgCard, borderRadius: 20, padding: 16,
-      borderWidth: 1, borderColor: colors.border, marginBottom: 12,
-      shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.05, shadowRadius: 10, elevation: 2,
-    },
-    activeCard: { borderColor: colors.emerald + '44', backgroundColor: isDark ? '#0D1A13' : '#F0FDF4' },
-    upiIcon: {
-      width: 44, height: 44, borderRadius: 12,
-      alignItems: 'center', justifyContent: 'center',
-    },
-    upiHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
-    upiIdText: { color: colors.textPrimary, fontSize: 15, fontWeight: '800' },
-    defaultBadge: {
-      flexDirection: 'row', alignItems: 'center', gap: 4,
-      backgroundColor: colors.emeraldGlow, borderRadius: 20,
-      paddingHorizontal: 8, paddingVertical: 3,
-    },
-    defaultBadgeText: { color: colors.emerald, fontSize: 10, fontWeight: '700' },
-    statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    verifiedTag: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-    verifiedText: { color: colors.success, fontSize: 11, fontWeight: '700' },
-    verifyTag: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-    verifyingText: { color: colors.warning, fontSize: 11, fontWeight: '700' },
-    verifyBtn: {
-      backgroundColor: 'rgba(245,158,11,0.1)', borderRadius: 8,
-      paddingHorizontal: 12, paddingVertical: 6,
-    },
-    verifyBtnText: { color: colors.warning, fontSize: 11, fontWeight: '800' },
-    cardActions: { flexDirection: 'row', gap: 10, alignItems: 'center' },
-    iconBtn: {
-      width: 36, height: 36, borderRadius: 10,
-      backgroundColor: colors.bgCard2, alignItems: 'center', justifyContent: 'center',
-      borderWidth: 1, borderColor: colors.border,
-    },
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-    modalContent: {
-      backgroundColor: colors.bgCard, borderTopLeftRadius: 32, borderTopRightRadius: 32,
-      padding: 24,
-    },
-    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-    modalTitle: { color: colors.textPrimary, fontSize: 20, fontWeight: '900' },
-    closeBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.bgCard2, alignItems: 'center', justifyContent: 'center' },
-    inputGroup: { marginBottom: 18 },
-    inputLabel: { color: colors.textSecondary, fontSize: 13, fontWeight: '600', marginBottom: 8, marginLeft: 4 },
-    input: {
-      backgroundColor: colors.bgInput, borderRadius: 16, borderWidth: 1, borderColor: colors.border,
-      paddingHorizontal: 16, paddingVertical: 16, color: colors.textPrimary, fontSize: 15, fontWeight: '500'
-    },
-    modalError: { color: colors.error, fontSize: 13, marginBottom: 10, textAlign: 'center' },
-    modalActions: { flexDirection: 'row', gap: 12, marginTop: 8 },
-    cancelBtn: {
-      flex: 1, borderRadius: 16, paddingVertical: 16, alignItems: 'center',
-      backgroundColor: colors.bgCard2, borderWidth: 1, borderColor: colors.border,
-    },
-    cancelBtnText: { color: colors.textSecondary, fontSize: 14, fontWeight: '700' },
-    saveBtn: { flex: 1, borderRadius: 16, paddingVertical: 16, alignItems: 'center', backgroundColor: colors.emerald },
-    saveBtnText: { color: '#fff', fontSize: 14, fontWeight: '800' },
-  });
-}
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  addHeaderBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#161B22', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#2D333B' },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
+  emptyTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '800', marginTop: 16 },
+  emptySub: { color: '#666', fontSize: 14, textAlign: 'center', marginTop: 8, lineHeight: 20 },
+  emptyBtn: { backgroundColor: '#00E38C', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 16, marginTop: 24 },
+  emptyBtnText: { color: '#000', fontSize: 15, fontWeight: '800' },
+  scroll: { padding: 24 },
+  upiCard: { backgroundColor: '#161B22', borderRadius: 20, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 16, borderWidth: 1, borderColor: '#2D333B', marginBottom: 12 },
+  upiIconBox: { width: 44, height: 44, borderRadius: 12, backgroundColor: 'rgba(0, 227, 140, 0.1)', alignItems: 'center', justifyContent: 'center' },
+  upiIdText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  verifiedRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+  verifiedText: { color: '#00E38C', fontSize: 11, fontWeight: '700' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: '#161B22', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, paddingBottom: 40 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
+  modalTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '800' },
+  inputLabel: { color: '#A0A0A0', fontSize: 12, fontWeight: '700', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1 },
+  inputWrapper: { backgroundColor: '#0F1115', borderRadius: 16, borderWidth: 1, borderColor: '#2D333B', paddingHorizontal: 16, height: 56, justifyContent: 'center' },
+  input: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
+  errorText: { color: '#EF4444', fontSize: 12, fontWeight: '600', marginTop: 12 },
+  saveBtn: { backgroundColor: '#00E38C', borderRadius: 18, height: 56, alignItems: 'center', justifyContent: 'center', marginTop: 24 },
+  saveBtnText: { color: '#000', fontSize: 16, fontWeight: '800' },
+});

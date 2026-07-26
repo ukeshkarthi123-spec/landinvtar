@@ -8,88 +8,72 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-const normalizeSupabaseUrl = (value?: string): string | undefined => {
-  const trimmedValue = value?.trim();
-  if (!trimmedValue) return undefined;
-
-  try {
-    return new URL(trimmedValue).origin;
-  } catch {
-    return trimmedValue.replace(/\/+$/, '').replace(/\/(?:auth|rest|storage|functions|realtime|graphql)(?:\/v1)?\/?$/i, '');
-  }
-};
-
 Deno.serve(async (req: Request) => {
-  // Handle CORS
+  // Handle CORS Pre-flight
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
 
   try {
+    console.log("[CreateOrder] Received request");
+
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      throw new Error("Missing authorization header");
-    }
+    if (!authHeader) throw new Error("Missing authorization header");
 
     // Initialize Supabase Client
-    const supabaseUrl = normalizeSupabaseUrl(Deno.env.get("SUPABASE_URL")) ?? "";
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-    if (!supabaseUrl) {
-      throw new Error("Missing SUPABASE_URL");
-    }
-
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get user from JWT
+    // Get Authenticated User
     const token = authHeader.replace("Bearer ", "");
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
 
     if (authError || !user) {
+      console.error("[CreateOrder] Auth Error:", authError?.message);
       return new Response(
-        JSON.stringify({ error: "Invalid token" }),
+        JSON.stringify({ error: "Authentication failed. Unauthorized access." }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Get Razorpay credentials
-    const razorpayKeyId = Deno.env.get("RAZORPAY_KEY_ID")?.trim();
-    const razorpayKeySecret = Deno.env.get("RAZORPAY_KEY_SECRET")?.trim();
+    // Get Request Body
+    const { amount } = await req.json();
+    console.log(`[CreateOrder] User: ${user.email}, Amount: ₹${amount}`);
 
-    if (!razorpayKeyId || !razorpayKeySecret) {
-      console.error("[Razorpay] Credentials not configured in secrets");
-      return new Response(
-        JSON.stringify({ error: "Razorpay credentials not configured" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    if (!amount || isNaN(amount) || amount < 100) {
+      throw new Error("Minimum investment/deposit amount is ₹100.");
     }
 
-    const { amount } = await req.json();
-    if (!amount || amount < 1) {
-      return new Response(
-        JSON.stringify({ error: "Invalid amount" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    // Check Razorpay Configuration
+    const keyId = Deno.env.get("RAZORPAY_KEY_ID")?.trim();
+    const keySecret = Deno.env.get("RAZORPAY_KEY_SECRET")?.trim();
+
+    if (!keyId || !keySecret) {
+      console.error("[CreateOrder] Razorpay server-side credentials missing");
+      throw new Error("Razorpay integration is not fully configured on the server.");
     }
 
     // Initialize Razorpay
     const razorpay = new Razorpay({
-      key_id: razorpayKeyId,
-      key_secret: razorpayKeySecret,
+      key_id: keyId,
+      key_secret: keySecret,
     });
 
-    const receipt = `rcpt_${user.id.slice(0, 8)}_${Date.now()}`;
+    const receiptId = `rzp_${user.id.slice(0, 8)}_${Date.now()}`;
 
-    // Create Razorpay Order
-    console.log(`[Razorpay] Creating order for ₹${amount}`);
+    // 1. Create order in Razorpay System
+    console.log("[CreateOrder] Calling Razorpay API...");
     const order = await razorpay.orders.create({
       amount: Math.round(amount * 100), // convert to paise
       currency: "INR",
-      receipt: receipt,
-      payment_capture: 1,
+      receipt: receiptId,
+      payment_capture: 1, // Auto capture
     });
 
-    // Store in payment_orders table
+    console.log(`[CreateOrder] Order ID generated: ${order.id}`);
+
+    // 2. Persist order in local Database for tracking/verification
     const { error: dbError } = await supabase
       .from("payment_orders")
       .insert({
@@ -97,30 +81,31 @@ Deno.serve(async (req: Request) => {
         razorpay_order_id: order.id,
         amount: amount,
         currency: "INR",
-        receipt: receipt,
+        receipt: receiptId,
         status: "created"
       });
 
     if (dbError) {
-      console.error("[Razorpay] Database log error:", dbError.message);
-      // We continue as the order is already created in Razorpay
+      console.error("[CreateOrder] Database persistence error:", dbError.message);
+      // We don't throw here since the Razorpay order is already created
     }
 
+    // Return Order ID and Public Key to client
     return new Response(
       JSON.stringify({
         success: true,
         order_id: order.id,
-        amount: order.amount, // in paise
+        amount: order.amount,
         currency: order.currency,
-        key_id: razorpayKeyId, // Need this for frontend Checkout
+        key_id: keyId,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
   } catch (error: any) {
-    console.error("[Razorpay] Create Order Error:", error.message);
+    console.error("[CreateOrder] Fatal Exception:", error.message);
     return new Response(
-      JSON.stringify({ error: error.message || "Internal server error" }),
+      JSON.stringify({ error: error.message || "Could not initiate payment order." }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

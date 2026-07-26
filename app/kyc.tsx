@@ -1,518 +1,520 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ActivityIndicator, ScrollView, Alert, Image,
+  ActivityIndicator, ScrollView, Alert, Image, Dimensions, Linking, StatusBar
 } from 'react-native';
 import {
   ShieldCheck, FileText, CreditCard, Camera, CheckCircle2,
   Clock, XCircle, Upload, AlertCircle, Trash2, Smartphone,
+  Check,
 } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '@/context/ThemeContext';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { useApp } from '@/context/AppContext';
 import { supabase } from '@/lib/supabase';
-import type { KycDocument } from '@/types/database';
+import { decode } from 'base64-arraybuffer';
+
+const { width } = Dimensions.get('window');
+
+interface KycData {
+  id: string;
+  user_id: string;
+  pan_number: string;
+  aadhaar_number: string;
+  mobile_number: string | null;
+  pan_file_url: string | null;
+  aadhaar_file_url: string | null;
+  aadhaar_back_file_url: string | null;
+  selfie_file_url: string | null;
+  status: 'Pending' | 'Approved' | 'Rejected';
+  rejection_reason: string | null;
+  submitted_at: string;
+}
 
 export default function KycScreen() {
   const { colors, isDark } = useTheme();
   const { profile, refreshProfile } = useApp();
-  const [kyc, setKyc] = useState<KycDocument | null>(null);
+  const [kycRecord, setKycRecord] = useState<KycData | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
+  // Form State
   const [pan, setPan] = useState('');
   const [aadhaar, setAadhaar] = useState('');
-  const [phone, setPhone] = useState(profile?.phone || '');
+  const [phone, setPhone] = useState('');
   const [panImage, setPanImage] = useState<string | null>(null);
+  const [panBase64, setPanBase64] = useState<string | null>(null);
   const [aadhaarImage, setAadhaarImage] = useState<string | null>(null);
+  const [aadhaarBase64, setAadhaarBase64] = useState<string | null>(null);
+  const [aadhaarBackImage, setAadhaarBackImage] = useState<string | null>(null);
+  const [aadhaarBackBase64, setAadhaarBackBase64] = useState<string | null>(null);
   const [selfieImage, setSelfieImage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [selfieBase64, setSelfieBase64] = useState<string | null>(null);
 
-  const normalizeStatus = useCallback((value?: string | null) => {
-    if (!value) return 'Not Started';
-    const v = value.toLowerCase();
-    if (v === 'approved' || v === 'verified') return 'Verified';
-    if (v === 'pending') return 'Pending';
-    if (v === 'rejected') return 'Rejected';
-    return value;
-  }, []);
+  // Validation Errors
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const fetchKyc = useCallback(async () => {
-    const userId = profile?.id;
-    if (!userId) {
-      setKyc(null);
-      setPan('');
-      setAadhaar('');
-      setPanImage(null);
-      setAadhaarImage(null);
-      setSelfieImage(null);
-      return;
-    }
+  const fetchKycData = useCallback(async () => {
+    if (!profile?.id) return;
 
     try {
       const { data, error: fetchError } = await supabase
         .from('kyc_documents')
         .select('*')
-        .eq('user_id', userId)
-        .order('submitted_at', { ascending: false })
-        .limit(1)
+        .eq('user_id', profile.id)
         .maybeSingle();
 
       if (fetchError) throw fetchError;
 
       if (data) {
-        const record = data as KycDocument & { pan_url?: string | null; aadhaar_url?: string | null };
-        setKyc(data as KycDocument);
-        setPan(record.pan_number || '');
-        setAadhaar(record.aadhaar_number || '');
-        setPanImage(record.pan_file_url || record.pan_url || null);
-        setAadhaarImage(record.aadhaar_file_url || record.aadhaar_url || null);
-        setSelfieImage(record.selfie_url || null);
-      } else {
-        setKyc(null);
-        setPan('');
-        setAadhaar('');
-        setPanImage(null);
-        setAadhaarImage(null);
-        setSelfieImage(null);
+        setKycRecord(data);
+        setPan(data.pan_number || '');
+        setAadhaar(data.aadhaar_number || '');
+        setPhone(data.mobile_number || profile.phone || '');
+        setPanImage(data.pan_file_url);
+        setAadhaarImage(data.aadhaar_file_url);
+        setAadhaarBackImage(data.aadhaar_back_file_url);
+        setSelfieImage(data.selfie_file_url);
       }
     } catch (err) {
-      console.error('Error fetching KYC:', err);
-      setError('Unable to load your KYC information right now.');
+      console.error('[KYC] Fetch Error:', err);
+    } finally {
+      setLoading(false);
     }
-  }, [profile?.id]);
+  }, [profile?.id, profile?.phone]);
 
   useEffect(() => {
-    fetchKyc().finally(() => setLoading(false));
-  }, [fetchKyc]);
+    fetchKycData();
+  }, [fetchKycData]);
 
-  const formatAadhaar = (text: string) => {
-    const cleaned = text.replace(/\D/g, '');
-    let formatted = '';
-    for (let i = 0; i < cleaned.length; i++) {
-      if (i > 0 && i % 4 === 0) formatted += ' ';
-      formatted += cleaned[i];
+  const validate = () => {
+    const newErrors: Record<string, string> = {};
+
+    const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+    if (!panRegex.test(pan.trim().toUpperCase())) {
+      newErrors.pan = 'Invalid PAN format (e.g., ABCDE1234F)';
     }
-    setAadhaar(formatted);
+
+    const aadhaarClean = aadhaar.replace(/\s/g, '');
+    if (aadhaarClean.length !== 12 || !/^\d+$/.test(aadhaarClean)) {
+      newErrors.aadhaar = 'Aadhaar must be 12 digits';
+    }
+
+    const phoneClean = phone.replace(/\D/g, '');
+    if (phoneClean.length !== 10) {
+      newErrors.phone = 'Mobile must be 10 digits';
+    }
+
+    if (!panImage) newErrors.panImage = 'PAN image is required';
+    if (!aadhaarImage) newErrors.aadhaarImage = 'Aadhaar Front image is required';
+    if (!aadhaarBackImage) newErrors.aadhaarBackImage = 'Aadhaar Back image is required';
+    if (!selfieImage) newErrors.selfieImage = 'Selfie is required';
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
-  const pickImage = async (type: 'pan' | 'aadhaar' | 'selfie') => {
-    const permissionResult = type === 'selfie'
-      ? await ImagePicker.requestCameraPermissionsAsync()
-      : await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-    if (permissionResult.status !== 'granted') {
-      Alert.alert('Permission Denied', 'Camera or photo access is required to upload documents.');
-      return;
+  const handleCameraPermission = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(
+        'Permission Required',
+        'Camera access is required to capture documents.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open Settings', onPress: () => Linking.openSettings() }
+        ]
+      );
+      return false;
     }
+    return true;
+  };
 
-    const options = {
+  const captureImage = async (type: 'pan' | 'aadhaar_front' | 'aadhaar_back' | 'selfie') => {
+    const hasPermission = await handleCameraPermission();
+    if (!hasPermission) return;
+
+    const isSelfie = type === 'selfie';
+    const options: ImagePicker.ImagePickerOptions = {
       allowsEditing: true,
-      quality: 0.8,
+      aspect: isSelfie ? [1, 1] : [4, 3],
+      quality: 0.7,
       base64: true,
+      cameraType: isSelfie ? ImagePicker.CameraType.front : ImagePicker.CameraType.back,
     };
 
-    let result;
-    if (type === 'selfie') {
-      result = await ImagePicker.launchCameraAsync(options);
-    } else {
-      result = await ImagePicker.launchImageLibraryAsync(options);
-    }
+    try {
+      const result = await ImagePicker.launchCameraAsync(options);
 
-    if (!result.canceled && result.assets[0].uri) {
-      if (type === 'pan') setPanImage(result.assets[0].uri);
-      if (type === 'aadhaar') setAadhaarImage(result.assets[0].uri);
-      if (type === 'selfie') setSelfieImage(result.assets[0].uri);
+      if (!result.canceled && result.assets[0]) {
+        const { uri, base64 } = result.assets[0];
+        if (type === 'pan') {
+          setPanImage(uri);
+          setPanBase64(base64 || null);
+        } else if (type === 'aadhaar_front') {
+          setAadhaarImage(uri);
+          setAadhaarBase64(base64 || null);
+        } else if (type === 'aadhaar_back') {
+          setAadhaarBackImage(uri);
+          setAadhaarBackBase64(base64 || null);
+        } else {
+          setSelfieImage(uri);
+          setSelfieBase64(base64 || null);
+        }
+        setErrors(prev => ({ ...prev, [`${type}Image`]: '' }));
+      }
+    } catch (err) {
+      console.error('[KYC] Camera error:', err);
+      Alert.alert('Error', 'Failed to launch camera.');
     }
   };
 
-  const uploadFile = async (uri: string, type: string) => {
-    const fileName = `${profile?.id}_${type}_${Date.now()}.jpg`;
+  const uploadToSupabase = async (base64Data: string, docType: string) => {
+    const bucketName = 'kyc-documents';
+
+    // 1. Verify Authentication
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+    if (sessionError || !session?.user?.id) {
+        console.error('[KYC Storage] Auth Check Failed:', sessionError);
+        throw new Error('Authentication failed. Please log in again to upload documents.');
+    }
+
+    const userId = session.user.id;
+    // Format path exactly as required by user and folder-scoped RLS policies
+    const fileName = `${docType}-${Date.now()}.jpg`;
+    const filePath = `${userId}/${fileName}`;
+
+    console.log('[KYC Storage] DEBUG START');
+    console.log('Bucket:', bucketName);
+    console.log('Path:', filePath);
+    console.log('User ID:', userId);
+    console.log('Session Status:', session ? 'Active' : 'Missing');
 
     try {
-      const response = await fetch(uri);
-      const blob = await response.blob();
-
-      // Ensure content type is set correctly for Android/iOS variations
       const { data, error: uploadError } = await supabase.storage
-        .from('kyc-documents')
-        .upload(fileName, blob, {
+        .from(bucketName)
+        .upload(filePath, decode(base64Data), {
           contentType: 'image/jpeg',
-          upsert: true,
-          cacheControl: '3600'
+          upsert: true
         });
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        console.error('[KYC Storage] ERROR OBJECT:', JSON.stringify(uploadError, null, 2));
+        console.error('[KYC Storage] MESSAGE:', uploadError.message);
+        console.error('[KYC Storage] STATUS:', (uploadError as any).status || 'Unknown');
+        throw uploadError;
+      }
 
       const { data: { publicUrl } } = supabase.storage
-        .from('kyc-documents')
-        .getPublicUrl(fileName);
+        .from(bucketName)
+        .getPublicUrl(filePath);
 
+      console.log('[KYC Storage] UPLOAD SUCCESS:', publicUrl);
       return publicUrl;
-    } catch (err) {
-      console.error(`[KYC] Upload error for ${type}:`, err);
-      throw new Error(`Failed to upload ${type}. Please check your connection.`);
+    } catch (err: any) {
+      console.error(`[KYC Storage] Final Catch for ${docType}:`, err);
+      throw new Error(`Storage upload failed for ${docType}: ${err.message || 'Unknown RLS or Network Error'}`);
     }
   };
 
   const handleSubmit = async () => {
-    const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
-    if (!panRegex.test(pan.trim().toUpperCase())) {
-      setError('Please enter a valid PAN number.');
-      return;
-    }
-
-    const aadhaarClean = aadhaar.replace(/\s/g, '');
-    if (aadhaarClean.length !== 12) {
-      setError('Please enter a valid 12-digit Aadhaar number.');
-      return;
-    }
-
-    const phoneClean = phone.replace(/\D/g, '');
-    if (phoneClean.length < 10) {
-      setError('Please enter a valid 10-digit mobile number.');
-      return;
-    }
-
-    if (!panImage || !aadhaarImage || !selfieImage) {
-      setError('Please upload all required documents and a selfie.');
-      return;
-    }
+    if (!validate()) return;
 
     setSubmitting(true);
-    setError(null);
-
     try {
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user?.id) throw new Error('User not found');
+      // 1. Upload images using verified session user id and correct bucket
+      const panUrl = panBase64 ? await uploadToSupabase(panBase64, 'pan') : panImage;
+      const aadhaarFrontUrl = aadhaarBase64 ? await uploadToSupabase(aadhaarBase64, 'aadhaar') : aadhaarImage;
+      const aadhaarBackUrl = aadhaarBackBase64 ? await uploadToSupabase(aadhaarBackBase64, 'aadhaar-back') : aadhaarBackImage;
+      const selfieUrl = selfieBase64 ? await uploadToSupabase(selfieBase64, 'selfie') : selfieImage;
 
-      // 1. Upload images if they are local URIs
-      let panUrl = panImage;
-      let aadhaarUrl = aadhaarImage;
-      let selfieUrl = selfieImage;
-
-      if (panImage.startsWith('file://') || panImage.startsWith('content://')) {
-        panUrl = await uploadFile(panImage, 'pan');
-      }
-      if (aadhaarImage.startsWith('file://') || aadhaarImage.startsWith('content://')) {
-        aadhaarUrl = await uploadFile(aadhaarImage, 'aadhaar');
-      }
-      if (selfieImage.startsWith('file://') || selfieImage.startsWith('content://')) {
-        selfieUrl = await uploadFile(selfieImage, 'selfie');
-      }
-
-      // 2. Upsert KYC record
-      const payload = {
-        user_id: user.id,
-        pan_number: pan.trim().toUpperCase(),
-        aadhaar_number: aadhaarClean,
-        pan_file_url: panUrl,
-        aadhaar_file_url: aadhaarUrl,
-        selfie_url: selfieUrl,
-        status: 'Pending',
-        submitted_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-
-      const { error: upsertError } = await supabase
+      // 2. Upsert to database
+      const { error: dbError } = await supabase
         .from('kyc_documents')
-        .upsert(payload, { onConflict: 'user_id' });
-
-      if (upsertError) throw upsertError;
-
-      // 3. Update profile with phone and pending status
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({
-          kyc_status: 'Pending',
-          phone: phoneClean,
+        .upsert({
+          user_id: profile?.id,
+          pan_number: pan.toUpperCase(),
+          aadhaar_number: aadhaar.replace(/\s/g, ''),
+          mobile_number: phone,
+          pan_file_url: panUrl,
+          aadhaar_file_url: aadhaarFrontUrl,
+          aadhaar_back_file_url: aadhaarBackUrl,
+          selfie_file_url: selfieUrl,
+          status: 'Pending',
+          submitted_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
-        })
-        .eq('id', user.id);
+        }, { onConflict: 'user_id' });
 
-      if (profileError) throw profileError;
+      if (dbError) throw dbError;
 
-      await fetchKyc();
+      Alert.alert('KYC Submitted', 'Documents submitted successfully. Verification takes 24-48 hours.');
+      await fetchKycData();
       await refreshProfile();
-      Alert.alert('Success', 'KYC submitted successfully. We will review it shortly.');
     } catch (err: any) {
-      console.error('KYC Submission Error:', err);
-      setError(err.message || 'Failed to submit KYC. Please try again.');
+      Alert.alert('Submission Error', err.message || 'Something went wrong.');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const status = normalizeStatus(kyc?.status ?? profile?.kyc_status ?? 'Not Started');
+  const status = kycRecord?.status || 'none';
   const dynamicStyles = getDynamicStyles(colors, isDark);
 
-  const renderUploadCard = (label: string, icon: any, image: string | null, onPress: () => void, onClear: () => void) => (
-    <View style={dynamicStyles.uploadContainer}>
-      <TouchableOpacity
-        style={[dynamicStyles.uploadCard, image && dynamicStyles.uploadCardActive]}
-        onPress={onPress}
-      >
-        {image ? (
-          <Image source={{ uri: image }} style={dynamicStyles.previewImage} />
-        ) : (
-          <>
-            {icon}
-            <Text style={dynamicStyles.uploadLabel}>{label}</Text>
-            <Text style={dynamicStyles.uploadHint}>Tap to upload</Text>
-          </>
-        )}
-      </TouchableOpacity>
-      {image && (
-        <TouchableOpacity style={dynamicStyles.clearImageBtn} onPress={onClear}>
-          <Trash2 size={14} color={colors.error} />
-        </TouchableOpacity>
-      )}
-    </View>
-  );
+  if (loading) {
+    return (
+      <View style={dynamicStyles.centered}>
+        <ActivityIndicator size="large" color={colors.emerald} />
+      </View>
+    );
+  }
 
   return (
     <View style={dynamicStyles.container}>
-      <ScreenHeader title="KYC Verification" />
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
+      <ScreenHeader title="Identity Verification" />
 
-      {loading ? (
-        <View style={dynamicStyles.centered}>
-          <ActivityIndicator color={colors.emerald} size="large" />
-        </View>
-      ) : (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={dynamicStyles.scroll}>
-          <View style={[
-            dynamicStyles.statusCard,
-            status === 'Verified' && dynamicStyles.statusVerified,
-            status === 'Pending' && dynamicStyles.statusPending,
-            status === 'Rejected' && dynamicStyles.statusRejected,
-          ]}>
-            {status === 'Verified' && <CheckCircle2 size={24} color={colors.success} />}
-            {status === 'Pending' && <Clock size={24} color={colors.warning} />}
-            {status === 'Rejected' && <XCircle size={24} color={colors.error} />}
-            {status === 'Not Started' && <ShieldCheck size={24} color={colors.textMuted} />}
-            <View style={{ flex: 1 }}>
-              <Text style={dynamicStyles.statusTitle}>KYC {status}</Text>
-              <Text style={dynamicStyles.statusMsg}>
-                {status === 'Verified' && 'Your KYC is verified. You can invest in all projects.'}
-                {status === 'Pending' && 'Your documents are under review. This usually takes 24-48 hours.'}
-                {status === 'Rejected' && (kyc?.rejection_reason ?? 'Your KYC was rejected. Please re-submit with correct documents.')}
-                {status === 'Not Started' && 'Complete your KYC to start investing in land projects.'}
-              </Text>
-            </View>
+      <ScrollView contentContainerStyle={dynamicStyles.scroll} showsVerticalScrollIndicator={false}>
+        <View style={[
+          dynamicStyles.statusCard,
+          status === 'Approved' && dynamicStyles.statusApproved,
+          status === 'Pending' && dynamicStyles.statusPending,
+          status === 'Rejected' && dynamicStyles.statusRejected,
+        ]}>
+          <View style={dynamicStyles.statusIconContainer}>
+            {status === 'Approved' ? <CheckCircle2 size={28} color={colors.success} /> :
+             status === 'Pending' ? <Clock size={28} color={colors.warning} /> :
+             status === 'Rejected' ? <XCircle size={28} color={colors.error} /> :
+             <ShieldCheck size={28} color={colors.emerald} />}
           </View>
-
-          {status !== 'Verified' && status !== 'Pending' && (
-            <View style={dynamicStyles.formSection}>
-              <Text style={dynamicStyles.sectionTitle}>Submit Documents</Text>
-
-              <View style={dynamicStyles.inputGroup}>
-                <Text style={dynamicStyles.inputLabel}>PAN Number</Text>
-                <View style={dynamicStyles.inputWrapper}>
-                  <FileText size={16} color={colors.textMuted} />
-                  <TextInput
-                    style={dynamicStyles.input}
-                    placeholder="ABCDE1234F"
-                    placeholderTextColor={colors.textMuted}
-                    autoCapitalize="characters"
-                    maxLength={10}
-                    value={pan}
-                    onChangeText={(t) => setPan(t.toUpperCase())}
-                  />
-                </View>
-              </View>
-
-              <View style={dynamicStyles.inputGroup}>
-                <Text style={dynamicStyles.inputLabel}>Mobile Number</Text>
-                <View style={dynamicStyles.inputWrapper}>
-                  <Smartphone size={16} color={colors.textMuted} />
-                  <TextInput
-                    style={dynamicStyles.input}
-                    placeholder="9876543210"
-                    placeholderTextColor={colors.textMuted}
-                    keyboardType="numeric"
-                    maxLength={10}
-                    value={phone}
-                    onChangeText={setPhone}
-                  />
-                </View>
-              </View>
-
-              <View style={dynamicStyles.inputGroup}>
-                <Text style={dynamicStyles.inputLabel}>Aadhaar Number</Text>
-                <View style={dynamicStyles.inputWrapper}>
-                  <CreditCard size={16} color={colors.textMuted} />
-                  <TextInput
-                    style={dynamicStyles.input}
-                    placeholder="1234 5678 9012"
-                    placeholderTextColor={colors.textMuted}
-                    keyboardType="numeric"
-                    maxLength={14}
-                    value={aadhaar}
-                    onChangeText={formatAadhaar}
-                  />
-                </View>
-              </View>
-
-              <View style={dynamicStyles.uploadRow}>
-                {renderUploadCard('PAN Card', <Upload size={20} color={colors.textMuted} />, panImage, () => pickImage('pan'), () => setPanImage(null))}
-                {renderUploadCard('Aadhaar', <Upload size={20} color={colors.textMuted} />, aadhaarImage, () => pickImage('aadhaar'), () => setAadhaarImage(null))}
-                {renderUploadCard('Selfie', <Camera size={20} color={colors.textMuted} />, selfieImage, () => pickImage('selfie'), () => setSelfieImage(null))}
-              </View>
-
-              <Text style={dynamicStyles.uploadNote}>
-                • Make sure images are clear and text is readable.{'\n'}
-                • Documents must belong to you.{'\n'}
-                • Max file size: 5MB.
-              </Text>
-
-              {error && (
-                <View style={dynamicStyles.errorBox}>
-                  <AlertCircle size={14} color={colors.error} />
-                  <Text style={dynamicStyles.errorText}>{error}</Text>
-                </View>
-              )}
-
-              <TouchableOpacity
-                style={[dynamicStyles.submitBtn, submitting && dynamicStyles.submitBtnDisabled]}
-                onPress={handleSubmit}
-                disabled={submitting}
-                activeOpacity={0.85}
-              >
-                {submitting ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <Text style={dynamicStyles.submitBtnText}>Submit for Verification</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {status === 'Pending' && (
-            <View style={dynamicStyles.pendingNotice}>
-              <Clock size={40} color={colors.warning} />
-              <Text style={dynamicStyles.pendingTitle}>Under Review</Text>
-              <Text style={dynamicStyles.pendingText}>
-                We are currently verifying your identity. This usually takes less than 24 hours. You will receive a notification once the process is complete.
-              </Text>
-            </View>
-          )}
-
-          <View style={dynamicStyles.infoCard}>
-            <Text style={dynamicStyles.infoTitle}>Why KYC is required?</Text>
-            <Text style={dynamicStyles.infoText}>
-              As per SEBI regulations, we require KYC verification to ensure the safety and legality of all investments. Your data is encrypted and stored securely.
+          <View style={{ flex: 1 }}>
+            <Text style={dynamicStyles.statusTitle}>
+              {status === 'Approved' ? 'KYC Verified' :
+               status === 'Pending' ? 'Verification Pending' :
+               status === 'Rejected' ? 'KYC Rejected' :
+               'Complete Your KYC'}
+            </Text>
+            <Text style={dynamicStyles.statusDesc}>
+              {status === 'Approved' ? 'Your identity is verified. You can now start investing.' :
+               status === 'Pending' ? 'Documents are under review. This takes 24-48 hours.' :
+               status === 'Rejected' ? `Rejected: ${kycRecord?.rejection_reason || 'Re-upload clear documents.'}` :
+               'Submit documents to access investments.'}
             </Text>
           </View>
-        </ScrollView>
-      )}
+        </View>
+
+        {status !== 'Approved' && status !== 'Pending' && (
+          <View style={dynamicStyles.form}>
+            <View style={dynamicStyles.field}>
+              <Text style={dynamicStyles.label}>PAN Card Number</Text>
+              <View style={[dynamicStyles.inputBox, errors.pan && dynamicStyles.inputError]}>
+                <FileText size={20} color={colors.textSecondary} />
+                <TextInput
+                  style={dynamicStyles.input}
+                  placeholder="ABCDE1234F"
+                  placeholderTextColor={colors.textMuted}
+                  autoCapitalize="characters"
+                  maxLength={10}
+                  value={pan}
+                  onChangeText={setPan}
+                />
+              </View>
+              {errors.pan && <Text style={dynamicStyles.errorText}>{errors.pan}</Text>}
+            </View>
+
+            <View style={dynamicStyles.field}>
+              <Text style={dynamicStyles.label}>Aadhaar Number</Text>
+              <View style={[dynamicStyles.inputBox, errors.aadhaar && dynamicStyles.inputError]}>
+                <CreditCard size={20} color={colors.textSecondary} />
+                <TextInput
+                  style={dynamicStyles.input}
+                  placeholder="1234 5678 9012"
+                  placeholderTextColor={colors.textMuted}
+                  keyboardType="numeric"
+                  maxLength={12}
+                  value={aadhaar}
+                  onChangeText={setAadhaar}
+                />
+              </View>
+              {errors.aadhaar && <Text style={dynamicStyles.errorText}>{errors.aadhaar}</Text>}
+            </View>
+
+            <View style={dynamicStyles.field}>
+              <Text style={dynamicStyles.label}>Mobile Number</Text>
+              <View style={[dynamicStyles.inputBox, errors.phone && dynamicStyles.inputError]}>
+                <Smartphone size={20} color={colors.textSecondary} />
+                <TextInput
+                  style={dynamicStyles.input}
+                  placeholder="9876543210"
+                  placeholderTextColor={colors.textMuted}
+                  keyboardType="numeric"
+                  maxLength={10}
+                  value={phone}
+                  onChangeText={setPhone}
+                />
+              </View>
+              {errors.phone && <Text style={dynamicStyles.errorText}>{errors.phone}</Text>}
+            </View>
+
+            <Text style={dynamicStyles.sectionTitle}>Capture Documents</Text>
+
+            <View style={dynamicStyles.uploadGrid}>
+              <View style={dynamicStyles.uploadItem}>
+                <TouchableOpacity
+                  style={[dynamicStyles.uploadBox, panImage && dynamicStyles.uploadBoxActive, errors.panImage && dynamicStyles.uploadBoxError]}
+                  onPress={() => captureImage('pan')}
+                >
+                  {panImage ? (
+                    <Image source={{ uri: panImage }} style={dynamicStyles.imagePreview} />
+                  ) : (
+                    <>
+                      <Camera size={24} color={colors.textMuted} />
+                      <Text style={dynamicStyles.uploadText}>PAN Card</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+                {panImage && (
+                  <TouchableOpacity style={dynamicStyles.removeImg} onPress={() => { setPanImage(null); setPanBase64(null); }}>
+                    <Trash2 size={12} color="#fff" />
+                  </TouchableOpacity>
+                )}
+                {errors.panImage && <Text style={dynamicStyles.errorTextSmall}>{errors.panImage}</Text>}
+              </View>
+
+              <View style={dynamicStyles.uploadItem}>
+                <TouchableOpacity
+                  style={[dynamicStyles.uploadBox, aadhaarImage && dynamicStyles.uploadBoxActive, errors.aadhaarImage && dynamicStyles.uploadBoxError]}
+                  onPress={() => captureImage('aadhaar_front')}
+                >
+                  {aadhaarImage ? (
+                    <Image source={{ uri: aadhaarImage }} style={dynamicStyles.imagePreview} />
+                  ) : (
+                    <>
+                      <Camera size={24} color={colors.textMuted} />
+                      <Text style={dynamicStyles.uploadText}>Aadhaar Front</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+                {aadhaarImage && (
+                  <TouchableOpacity style={dynamicStyles.removeImg} onPress={() => { setAadhaarImage(null); setAadhaarBase64(null); }}>
+                    <Trash2 size={12} color="#fff" />
+                  </TouchableOpacity>
+                )}
+                {errors.aadhaarImage && <Text style={dynamicStyles.errorTextSmall}>{errors.aadhaarImage}</Text>}
+              </View>
+            </View>
+
+            <View style={dynamicStyles.uploadGrid}>
+              <View style={dynamicStyles.uploadItem}>
+                <TouchableOpacity
+                  style={[dynamicStyles.uploadBox, aadhaarBackImage && dynamicStyles.uploadBoxActive, errors.aadhaarBackImage && dynamicStyles.uploadBoxError]}
+                  onPress={() => captureImage('aadhaar_back')}
+                >
+                  {aadhaarBackImage ? (
+                    <Image source={{ uri: aadhaarBackImage }} style={dynamicStyles.imagePreview} />
+                  ) : (
+                    <>
+                      <Camera size={24} color={colors.textMuted} />
+                      <Text style={dynamicStyles.uploadText}>Aadhaar Back</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+                {aadhaarBackImage && (
+                  <TouchableOpacity style={dynamicStyles.removeImg} onPress={() => { setAadhaarBackImage(null); setAadhaarBackBase64(null); }}>
+                    <Trash2 size={12} color="#fff" />
+                  </TouchableOpacity>
+                )}
+                {errors.aadhaarBackImage && <Text style={dynamicStyles.errorTextSmall}>{errors.aadhaarBackImage}</Text>}
+              </View>
+
+              <View style={dynamicStyles.uploadItem}>
+                <TouchableOpacity
+                  style={[dynamicStyles.uploadBox, selfieImage && dynamicStyles.uploadBoxActive, errors.selfieImage && dynamicStyles.uploadBoxError]}
+                  onPress={() => captureImage('selfie')}
+                >
+                  {selfieImage ? (
+                    <Image source={{ uri: selfieImage }} style={dynamicStyles.imagePreview} />
+                  ) : (
+                    <>
+                      <Camera size={24} color={colors.textMuted} />
+                      <Text style={dynamicStyles.uploadText}>Selfie</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+                {selfieImage && (
+                  <TouchableOpacity style={dynamicStyles.removeImg} onPress={() => { setSelfieImage(null); setSelfieBase64(null); }}>
+                    <Trash2 size={12} color="#fff" />
+                  </TouchableOpacity>
+                )}
+                {errors.selfieImage && <Text style={dynamicStyles.errorTextSmall}>{errors.selfieImage}</Text>}
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[dynamicStyles.submitBtn, submitting && { opacity: 0.7 }]}
+              onPress={handleSubmit}
+              disabled={submitting}
+            >
+              {submitting ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <>
+                  <Check size={20} color="#fff" />
+                  <Text style={dynamicStyles.submitText}>Submit for Verification</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {status === 'Pending' && (
+          <View style={dynamicStyles.pendingInfo}>
+            <ActivityIndicator color={colors.warning} size="large" style={{ marginBottom: 15 }} />
+            <Text style={dynamicStyles.pendingInfoTitle}>Verification in Progress</Text>
+            <Text style={dynamicStyles.pendingInfoText}>
+              Our team is verifying your documents. You will be notified once activated.
+            </Text>
+          </View>
+        )}
+      </ScrollView>
     </View>
   );
 }
 
-function getDynamicStyles(colors: ReturnType<typeof useTheme>['colors'], isDark: boolean) {
+function getDynamicStyles(colors: any, isDark: boolean) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.bg },
     scroll: { padding: 20 },
-    centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-    statusCard: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      gap: 12,
-      backgroundColor: colors.bgCard,
-      borderRadius: 16,
-      padding: 16,
-      borderWidth: 1,
-      borderColor: colors.border,
-      marginBottom: 20,
-    },
-    statusVerified: { borderColor: colors.success + '44', backgroundColor: colors.emeraldGlow2 },
-    statusPending: { borderColor: colors.warning + '44', backgroundColor: 'rgba(245,158,11,0.06)' },
-    statusRejected: { borderColor: colors.error + '44', backgroundColor: 'rgba(239,68,68,0.06)' },
-    statusTitle: { color: colors.textPrimary, fontSize: 16, fontWeight: '700', marginBottom: 4 },
-    statusMsg: { color: colors.textSecondary, fontSize: 12, lineHeight: 18 },
-    formSection: { gap: 16, marginBottom: 20 },
-    sectionTitle: { color: colors.textPrimary, fontSize: 16, fontWeight: '700', marginBottom: 4 },
-    inputGroup: { gap: 8 },
-    inputLabel: { color: colors.textSecondary, fontSize: 12, fontWeight: '600' },
-    inputWrapper: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-      backgroundColor: colors.bgInput,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: colors.border,
-      paddingHorizontal: 14,
-      paddingVertical: 14,
-    },
-    input: { flex: 1, color: colors.textPrimary, fontSize: 15, fontWeight: '500' },
-    uploadRow: { flexDirection: 'row', gap: 10 },
-    uploadContainer: { flex: 1, position: 'relative' },
-    uploadCard: {
-      height: 100,
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 4,
-      backgroundColor: colors.bgCard,
-      borderRadius: 14,
-      padding: 8,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderStyle: 'dashed',
-    },
-    uploadCardActive: { borderStyle: 'solid', borderColor: colors.emerald },
-    previewImage: { width: '100%', height: '100%', borderRadius: 10 },
-    clearImageBtn: {
-      position: 'absolute', top: -5, right: -5,
-      backgroundColor: colors.bgCard, borderRadius: 10, padding: 4,
-      borderWidth: 1, borderColor: colors.border,
-      elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.2, shadowRadius: 2,
-    },
-    uploadLabel: { color: colors.textPrimary, fontSize: 11, fontWeight: '700' },
-    uploadHint: { color: colors.textMuted, fontSize: 9 },
-    uploadNote: { color: colors.textMuted, fontSize: 11, lineHeight: 18, marginTop: 4 },
-    errorBox: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      gap: 8,
-      backgroundColor: 'rgba(239,68,68,0.1)',
-      borderRadius: 12,
-      padding: 12,
-      borderWidth: 1,
-      borderColor: colors.error + '33',
-    },
-    errorText: { color: colors.error, fontSize: 13, lineHeight: 18, flex: 1 },
-    submitBtn: {
-      backgroundColor: colors.emerald,
-      borderRadius: 14,
-      paddingVertical: 16,
-      alignItems: 'center',
-      marginTop: 8,
-    },
-    submitBtnDisabled: { opacity: 0.6 },
-    submitBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-    pendingNotice: {
-      alignItems: 'center',
-      padding: 30,
-      backgroundColor: colors.bgCard,
-      borderRadius: 16,
-      borderWidth: 1,
-      borderColor: colors.border,
-      marginBottom: 20,
-      gap: 12,
-    },
-    pendingTitle: { color: colors.textPrimary, fontSize: 18, fontWeight: '800' },
-    pendingText: { color: colors.textSecondary, fontSize: 13, textAlign: 'center', lineHeight: 20 },
-    infoCard: {
-      backgroundColor: colors.bgCard,
-      borderRadius: 14,
-      padding: 16,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    infoTitle: { color: colors.textPrimary, fontSize: 14, fontWeight: '700', marginBottom: 6 },
-    infoText: { color: colors.textSecondary, fontSize: 12, lineHeight: 18 },
+    centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    statusCard: { flexDirection: 'row', backgroundColor: colors.bgCard, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: colors.border, marginBottom: 24, gap: 15 },
+    statusApproved: { backgroundColor: colors.success + '10', borderColor: colors.success + '40' },
+    statusPending: { backgroundColor: colors.warning + '10', borderColor: colors.warning + '40' },
+    statusRejected: { backgroundColor: colors.error + '10', borderColor: colors.error + '40' },
+    statusIconContainer: { width: 50, height: 50, borderRadius: 25, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border },
+    statusTitle: { fontSize: 18, fontWeight: '800', color: colors.textPrimary, marginBottom: 4 },
+    statusDesc: { fontSize: 13, color: colors.textSecondary, lineHeight: 20 },
+    form: { gap: 20 },
+    sectionTitle: { fontSize: 16, fontWeight: '700', color: colors.textPrimary, marginTop: 10 },
+    field: { gap: 8 },
+    label: { fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginLeft: 4 },
+    inputBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bgInput, borderRadius: 15, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 15, height: 56, gap: 12 },
+    inputError: { borderColor: colors.error },
+    input: { flex: 1, color: colors.textPrimary, fontSize: 16, fontWeight: '500' },
+    uploadGrid: { flexDirection: 'row', gap: 12 },
+    uploadItem: { flex: 1, position: 'relative' },
+    uploadBox: { height: 110, backgroundColor: colors.bgInput, borderRadius: 15, borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', gap: 8 },
+    uploadBoxActive: { borderStyle: 'solid', borderColor: colors.emerald },
+    uploadBoxError: { borderColor: colors.error },
+    imagePreview: { width: '100%', height: '100%', borderRadius: 14 },
+    uploadText: { fontSize: 11, fontWeight: '600', color: colors.textMuted },
+    removeImg: { position: 'absolute', top: -8, right: -8, backgroundColor: colors.error, width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+    errorText: { color: colors.error, fontSize: 12, marginLeft: 4 },
+    errorTextSmall: { color: colors.error, fontSize: 10, textAlign: 'center', marginTop: 4 },
+    submitBtn: { backgroundColor: colors.emerald, height: 60, borderRadius: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 20 },
+    submitText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+    pendingInfo: { alignItems: 'center', paddingVertical: 40, gap: 10 },
+    pendingInfoTitle: { fontSize: 20, fontWeight: '800', color: colors.textPrimary },
+    pendingInfoText: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', lineHeight: 22, paddingHorizontal: 20 },
   });
 }

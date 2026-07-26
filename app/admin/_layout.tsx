@@ -46,6 +46,7 @@ export default function AdminLayout() {
       <Stack.Screen name="properties" options={{ title: 'Property Management' }} />
       <Stack.Screen name="kyc" options={{ title: 'KYC Approvals' }} />
       <Stack.Screen name="investments" options={{ title: 'Investment Logs' }} />
+      <Stack.Screen name="support" options={{ title: 'Support Tickets' }} />
     </Stack>
   );
 }

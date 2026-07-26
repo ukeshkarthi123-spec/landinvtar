@@ -7,19 +7,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-const normalizeSupabaseUrl = (value?: string): string | undefined => {
-  const trimmedValue = value?.trim();
-  if (!trimmedValue) return undefined;
-
-  try {
-    return new URL(trimmedValue).origin;
-  } catch {
-    return trimmedValue.replace(/\/+$/, '').replace(/\/(?:auth|rest|storage|functions|realtime|graphql)(?:\/v1)?\/?$/i, '');
-  }
-};
-
 Deno.serve(async (req: Request) => {
-  // Handle CORS
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
@@ -28,104 +16,126 @@ Deno.serve(async (req: Request) => {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) throw new Error("Missing authorization header");
 
-    const supabaseUrl = normalizeSupabaseUrl(Deno.env.get("SUPABASE_URL")) ?? "";
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-    if (!supabaseUrl) {
-      throw new Error("Missing SUPABASE_URL");
-    }
-
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const token = authHeader.replace("Bearer ", "");
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
 
     if (authError || !user) {
+      console.error("[VerifyPayment] Unauthorized access attempt");
       return new Response(
-        JSON.stringify({ error: "Invalid token" }),
+        JSON.stringify({ error: "Unauthorized" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const razorpayKeySecret = Deno.env.get("RAZORPAY_KEY_SECRET")?.trim();
-    if (!razorpayKeySecret) throw new Error("Razorpay secret not configured");
+    const payload = await req.json();
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = payload;
 
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = await req.json();
+    console.log(`[VerifyPayment] Payload:`, payload);
 
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
-      throw new Error("Missing payment verification details");
+      console.error("[VerifyPayment] Missing mandatory fields in request");
+      throw new Error("Missing mandatory payment fields (order_id, payment_id, or signature)");
     }
 
-    // 1. Verify HMAC Signature
+    const keySecret = Deno.env.get("RAZORPAY_KEY_SECRET")?.trim();
+    if (!keySecret) {
+      console.error("[VerifyPayment] RAZORPAY_KEY_SECRET is not set in Supabase Secrets");
+      throw new Error("Razorpay integration is partially configured on server. Contact admin.");
+    }
+
+    // 1. Compute HMAC SHA256 Signature for verification
+    // Razorpay verification format: order_id + "|" + payment_id
     const encoder = new TextEncoder();
-    const data = `${razorpay_order_id}|${razorpay_payment_id}`;
-    const key = await crypto.subtle.importKey(
+    const verificationData = `${razorpay_order_id}|${razorpay_payment_id}`;
+
+    const cryptoKey = await crypto.subtle.importKey(
       "raw",
-      encoder.encode(razorpayKeySecret),
+      encoder.encode(keySecret),
       { name: "HMAC", hash: "SHA-256" },
       false,
       ["sign"]
     );
-    const signatureBuffer = await crypto.subtle.sign("HMAC", key, encoder.encode(data));
+
+    const signatureBuffer = await crypto.subtle.sign("HMAC", cryptoKey, encoder.encode(verificationData));
     const hashArray = Array.from(new Uint8Array(signatureBuffer));
-    const computedSignature = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    const computedSignature = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+
+    console.log(`[VerifyPayment] Verification Detail:`);
+    console.log(`- Order: ${razorpay_order_id}`);
+    console.log(`- Payment: ${razorpay_payment_id}`);
+    console.log(`- Expected Signature: ${computedSignature}`);
+    console.log(`- Provided Signature: ${razorpay_signature}`);
 
     if (computedSignature !== razorpay_signature) {
-      console.error("[Razorpay] Invalid signature detected");
-      // Record failure in DB
+      console.error("[VerifyPayment] Signature mismatch detected!");
+
+      // Log failure in database for audit
       await supabase.rpc('fail_razorpay_payment', {
         p_razorpay_order_id: razorpay_order_id,
-        p_error_code: 'INVALID_SIGNATURE',
-        p_error_desc: 'Signature mismatch'
+        p_error_code: 'SIGNATURE_MISMATCH',
+        p_error_desc: 'Computed signature did not match provided Razorpay signature.'
       });
 
       return new Response(
-        JSON.stringify({ error: "Invalid payment signature" }),
+        JSON.stringify({ error: "Invalid payment signature. Verification failed." }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // 2. Fetch the original order to get amount
-    const { data: orderData, error: fetchError } = await supabase
+    // 2. Fetch original order to get the verified amount
+    const { data: orderRecord, error: fetchError } = await supabase
       .from('payment_orders')
-      .select('amount')
+      .select('amount, status')
       .eq('razorpay_order_id', razorpay_order_id)
       .single();
 
-    if (fetchError || !orderData) {
-      throw new Error("Order records not found");
+    if (fetchError || !orderRecord) {
+      console.error("[VerifyPayment] Order record not found for ID:", razorpay_order_id);
+      throw new Error("Payment order record could not be found in our database.");
     }
 
-    // 3. Confirm Payment (Update Wallet + Transactions via RPC)
-    // We use the RPC defined in migrations for atomic transaction safety
+    if (orderRecord.status === 'paid') {
+      console.log("[VerifyPayment] Order already marked as paid. Duplicate request handled.");
+      return new Response(
+        JSON.stringify({ success: true, message: "Payment already verified." }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // 3. Atomically update Wallet and create Transaction via Database RPC
+    console.log(`[VerifyPayment] Confirming payment of ₹${orderRecord.amount} for user ${user.id}`);
+
     const { data: rpcResult, error: rpcError } = await supabase.rpc('confirm_razorpay_payment', {
-      p_razorpay_order_id,
-      p_razorpay_payment_id,
-      p_razorpay_signature,
-      p_amount: orderData.amount
+      p_razorpay_order_id: razorpay_order_id,
+      p_razorpay_payment_id: razorpay_payment_id,
+      p_razorpay_signature: razorpay_signature,
+      p_amount: orderRecord.amount
     });
 
     if (rpcError) {
-      console.error("[Razorpay] confirm RPC error:", rpcError.message);
-      return new Response(
-        JSON.stringify({ error: "Failed to update wallet: " + rpcError.message }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      console.error("[VerifyPayment] Database RPC 'confirm_razorpay_payment' failed:", rpcError.message);
+      throw new Error("Wallet update failed: " + rpcError.message);
     }
+
+    console.log(`[VerifyPayment] Successfully processed. New balance: ₹${rpcResult.new_balance}`);
 
     return new Response(
       JSON.stringify({
         success: true,
-        message: "Payment verified and wallet credited",
+        message: "Payment verified and wallet credited successfully.",
         new_balance: rpcResult.new_balance
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
   } catch (error: any) {
-    console.error("[Razorpay] Verify Payment Error:", error.message);
+    console.error("[VerifyPayment] Exception:", error.message);
     return new Response(
-      JSON.stringify({ error: error.message || "Internal server error" }),
+      JSON.stringify({ error: error.message || "Internal verification error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

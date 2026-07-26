@@ -6,9 +6,8 @@ This migration adds 6 new tables to support the profile screen features:
 1. `kyc_documents` — stores KYC submission (PAN, Aadhaar, selfie) with admin approval status
 2. `bank_accounts` — stores user bank accounts with default selection
 3. `upi_ids` — stores user UPI IDs with verification and default selection
-4. `support_tickets` — stores customer support tickets with messages
-5. `referrals` — stores referral codes and referral history
-6. `tax_reports` — stores generated tax report metadata
+4. `referrals` — stores referral codes and referral history
+5. `tax_reports` — stores generated tax report metadata
 
 ## New Tables
 
@@ -47,18 +46,6 @@ This migration adds 6 new tables to support the profile screen features:
 - `is_default` (boolean, default false)
 - `created_at` (timestamptz, default now())
 
-### support_tickets
-- `id` (uuid, PK)
-- `user_id` (uuid, FK to auth.users, NOT NULL DEFAULT auth.uid())
-- `subject` (text, NOT NULL)
-- `description` (text, NOT NULL)
-- `category` (text: 'General' | 'Investment' | 'Payment' | 'KYC' | 'Technical', default 'General')
-- `status` (text: 'Open' | 'In Progress' | 'Resolved' | 'Closed', default 'Open')
-- `priority` (text: 'Low' | 'Medium' | 'High', default 'Medium')
-- `messages` (jsonb, default '[]'::jsonb)
-- `created_at` (timestamptz, default now())
-- `updated_at` (timestamptz, default now())
-
 ### referrals
 - `id` (uuid, PK)
 - `user_id` (uuid, FK to auth.users, NOT NULL DEFAULT auth.uid())
@@ -83,7 +70,6 @@ This migration adds 6 new tables to support the profile screen features:
 - `set_default_upi(p_upi_id uuid)` — unsets other defaults, sets the given UPI as default
 - `generate_referral_code()` — generates a unique 8-char referral code for the calling user
 - `submit_kyc(p_pan text, p_aadhaar text)` — creates a KYC submission and updates profile status to 'Pending'
-- `add_support_message(p_ticket_id uuid, p_message text)` — appends a user message to a ticket
 
 ## Security
 - RLS enabled on all 6 new tables
@@ -194,40 +180,6 @@ CREATE POLICY "delete_own_upi" ON upi_ids FOR DELETE
   TO authenticated USING (auth.uid() = user_id);
 
 -- ============================================================
--- Support Tickets
--- ============================================================
-CREATE TABLE IF NOT EXISTS support_tickets (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
-  subject text NOT NULL,
-  description text NOT NULL,
-  category text NOT NULL DEFAULT 'General' CHECK (category IN ('General', 'Investment', 'Payment', 'KYC', 'Technical')),
-  status text NOT NULL DEFAULT 'Open' CHECK (status IN ('Open', 'In Progress', 'Resolved', 'Closed')),
-  priority text NOT NULL DEFAULT 'Medium' CHECK (priority IN ('Low', 'Medium', 'High')),
-  messages jsonb NOT NULL DEFAULT '[]'::jsonb,
-  created_at timestamptz DEFAULT now(),
-  updated_at timestamptz DEFAULT now()
-);
-
-ALTER TABLE support_tickets ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "select_own_tickets" ON support_tickets;
-CREATE POLICY "select_own_tickets" ON support_tickets FOR SELECT
-  TO authenticated USING (auth.uid() = user_id);
-
-DROP POLICY IF EXISTS "insert_own_tickets" ON support_tickets;
-CREATE POLICY "insert_own_tickets" ON support_tickets FOR INSERT
-  TO authenticated WITH CHECK (auth.uid() = user_id);
-
-DROP POLICY IF EXISTS "update_own_tickets" ON support_tickets;
-CREATE POLICY "update_own_tickets" ON support_tickets FOR UPDATE
-  TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-
-DROP POLICY IF EXISTS "delete_own_tickets" ON support_tickets;
-CREATE POLICY "delete_own_tickets" ON support_tickets FOR DELETE
-  TO authenticated USING (auth.uid() = user_id);
-
--- ============================================================
 -- Referrals
 -- ============================================================
 CREATE TABLE IF NOT EXISTS referrals (
@@ -296,7 +248,6 @@ CREATE POLICY "delete_own_tax" ON tax_reports FOR DELETE
 CREATE INDEX IF NOT EXISTS idx_kyc_user ON kyc_documents(user_id);
 CREATE INDEX IF NOT EXISTS idx_bank_user ON bank_accounts(user_id);
 CREATE INDEX IF NOT EXISTS idx_upi_user ON upi_ids(user_id);
-CREATE INDEX IF NOT EXISTS idx_tickets_user ON support_tickets(user_id);
 CREATE INDEX IF NOT EXISTS idx_referrals_user ON referrals(user_id);
 CREATE INDEX IF NOT EXISTS idx_referrals_code ON referrals(referral_code);
 CREATE INDEX IF NOT EXISTS idx_tax_user ON tax_reports(user_id);
@@ -374,7 +325,7 @@ BEGIN
     RETURN v_code;
   END IF;
 
-  v_code := upper(substr(encode(gen_random_bytes(6), 'hex'), 1, 8));
+  v_code := upper(substr(md5(random()::text), 1, 8));
 
   INSERT INTO referrals (user_id, referral_code)
   VALUES (v_user_id, v_code);
@@ -413,46 +364,5 @@ BEGIN
   WHERE id = v_user_id;
 
   RETURN v_kyc_id;
-END;
-$$;
-
--- ============================================================
--- RPC: add_support_message
--- ============================================================
-CREATE OR REPLACE FUNCTION add_support_message(
-  p_ticket_id uuid,
-  p_message text
-)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-  v_user_id uuid := auth.uid();
-  v_existing jsonb;
-BEGIN
-  IF v_user_id IS NULL THEN
-    RAISE EXCEPTION 'Not authenticated';
-  END IF;
-
-  SELECT messages INTO v_existing
-  FROM support_tickets
-  WHERE id = p_ticket_id AND user_id = v_user_id
-  FOR UPDATE;
-
-  IF v_existing IS NULL THEN
-    RAISE EXCEPTION 'Ticket not found or not owned by caller';
-  END IF;
-
-  UPDATE support_tickets
-  SET messages = v_existing || jsonb_build_array(
-    jsonb_build_object(
-      'sender', 'user',
-      'message', p_message,
-      'created_at', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
-    )
-  ),
-  updated_at = now()
-  WHERE id = p_ticket_id;
 END;
 $$;

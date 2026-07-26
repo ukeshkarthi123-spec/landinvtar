@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { useColorScheme, Appearance } from 'react-native';
+import { useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
@@ -48,42 +48,44 @@ export interface ThemeColors {
 }
 
 const DarkColors: ThemeColors = {
-  emerald: '#16C784',
-  forest: '#0E9F6E',
-  emeraldDark: '#0A8A57',
-  emeraldLight: '#1EE09A',
-  emeraldGlow: 'rgba(22, 199, 132, 0.15)',
-  emeraldGlow2: 'rgba(22, 199, 132, 0.08)',
-  bg: '#090909',
-  bgCard: '#141414',
-  bgCard2: '#1C1C1C',
-  bgElevated: '#222222',
-  bgInput: '#1A1A1A',
+  emerald: '#00E38C', // User requested premium green
+  forest: '#00C476',
+  emeraldDark: '#00A852',
+  emeraldLight: '#33FFA5',
+  emeraldGlow: 'rgba(0, 227, 140, 0.15)',
+  emeraldGlow2: 'rgba(0, 227, 140, 0.08)',
+  bg: '#0F1115',      // User requested background
+  bgCard: '#161B22',  // Groww/CRED style card
+  bgCard2: '#1C222B',
+  bgElevated: '#212932',
+  bgInput: '#161B22',
   textPrimary: '#FFFFFF',
-  textSecondary: '#9CA3AF',
+  textSecondary: '#A0A0A0', // User requested secondary text
   textMuted: '#6B7280',
   textDisabled: '#4B5563',
-  success: '#16C784',
-  warning: '#F59E0B',
-  error: '#EF4444',
+  success: '#00E38C',
+  warning: '#FF9800',
+  error: '#FF4D4D',
   info: '#3B82F6',
-  border: '#2A2A2A',
-  borderLight: '#333333',
-  gradientGreen: ['#16C784', '#0E9F6E'],
-  gradientDark: ['#1C1C1C', '#141414'],
-  gradientCard: ['rgba(22,199,132,0.12)', 'rgba(14,159,110,0.04)'],
-  overlay: 'rgba(0,0,0,0.6)',
+  border: '#2D333B',
+  borderLight: '#3D444D',
+  gradientGreen: ['#00E38C', '#00C476'],
+  gradientDark: ['#161B22', '#0F1115'],
+  gradientCard: ['rgba(0, 227, 140, 0.12)', 'rgba(0, 196, 118, 0.04)'],
+  overlay: 'rgba(0,0,0,0.8)',
   glass: 'rgba(255,255,255,0.04)',
   glassBorder: 'rgba(255,255,255,0.08)',
 };
 
+// Even in "light" mode for this app, we'll maintain a dark-ish aesthetic or keep it consistent.
+// However, I'll update it to be a clean white theme that still uses the premium accent.
 const LightColors: ThemeColors = {
-  emerald: '#16C784',
-  forest: '#0E9F6E',
-  emeraldDark: '#0A8A57',
-  emeraldLight: '#1EE09A',
-  emeraldGlow: 'rgba(22, 199, 132, 0.12)',
-  emeraldGlow2: 'rgba(22, 199, 132, 0.06)',
+  emerald: '#00E38C',
+  forest: '#00C476',
+  emeraldDark: '#00A852',
+  emeraldLight: '#33FFA5',
+  emeraldGlow: 'rgba(0, 227, 140, 0.12)',
+  emeraldGlow2: 'rgba(0, 227, 140, 0.06)',
   bg: '#F8FAFC',
   bgCard: '#FFFFFF',
   bgCard2: '#F1F5F9',
@@ -93,15 +95,15 @@ const LightColors: ThemeColors = {
   textSecondary: '#475569',
   textMuted: '#94A3B8',
   textDisabled: '#CBD5E1',
-  success: '#16C784',
+  success: '#00E38C',
   warning: '#F59E0B',
   error: '#EF4444',
   info: '#3B82F6',
   border: '#E2E8F0',
   borderLight: '#CBD5E1',
-  gradientGreen: ['#16C784', '#0E9F6E'],
+  gradientGreen: ['#00E38C', '#00C476'],
   gradientDark: ['#F1F5F9', '#E2E8F0'],
-  gradientCard: ['rgba(22,199,132,0.08)', 'rgba(14,159,110,0.02)'],
+  gradientCard: ['rgba(0, 227, 140, 0.08)', 'rgba(0, 196, 118, 0.02)'],
   overlay: 'rgba(0,0,0,0.5)',
   glass: 'rgba(0,0,0,0.02)',
   glassBorder: 'rgba(0,0,0,0.06)',
@@ -173,8 +175,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     });
   }, [colorScheme]);
 
-  // Determine actual theme based on mode and system preference
-  // If isLoading is true, we fallback to system preference immediately to avoid flash
   const isDark = mode === 'system' ? colorScheme === 'dark' : mode === 'dark';
   const colors = isDark ? DarkColors : LightColors;
 

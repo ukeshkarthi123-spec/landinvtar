@@ -1,15 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Animated, Easing, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, Animated, Easing, TouchableOpacity, Alert, StatusBar } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useRootNavigationState } from 'expo-router';
 import { Fingerprint } from 'lucide-react-native';
+import * as SplashScreen from 'expo-splash-screen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '@/context/ThemeContext';
 import { useApp } from '@/context/AppContext';
 import { useBiometrics } from '@/hooks/useBiometrics';
 import { supabase } from '@/lib/supabase';
 
-export default function SplashScreen() {
+export default function AppSplashScreen() {
   const { colors, isDark } = useTheme();
   const { isAuthenticated, loading, profile } = useApp();
   const { isLocked, authenticate } = useBiometrics();
@@ -26,6 +27,17 @@ export default function SplashScreen() {
 
   useEffect(() => {
     isMounted.current = true;
+
+    // Hide native splash screen once the custom animated splash is ready
+    const hideNativeSplash = async () => {
+      try {
+        await SplashScreen.hideAsync();
+      } catch (e) {
+        // Ignore errors
+      }
+    };
+    hideNativeSplash();
+
     Animated.sequence([
       Animated.parallel([
         Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
@@ -98,6 +110,7 @@ export default function SplashScreen() {
 
   return (
     <View style={dynamicStyles.container}>
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
       <LinearGradient
         colors={isDark ? ['#090909', '#0D1A13', '#090909'] : ['#F8FAFC', '#E2E8F0', '#F8FAFC']}
         style={StyleSheet.absoluteFill}

@@ -122,8 +122,16 @@ export default function EditProfileScreen() {
   const uploadAvatar = async (uri: string) => {
     setUploading(true);
     setUploadProgress(0.1);
+
+    const bucketName = 'avatars';
+
     try {
-      // 1. Compress and get Base64
+      // 1. Verify Authentication
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session?.user?.id) throw new Error('Not authenticated');
+      const userId = session.user.id;
+
+      // 2. Compress and get Base64
       const manipResult = await ImageManipulator.manipulateAsync(
         uri,
         [{ resize: { width: 400, height: 400 } }],
@@ -134,35 +142,43 @@ export default function EditProfileScreen() {
 
       setUploadProgress(0.3);
 
-      // 2. Convert Base64 to Blob via fetch (RN supported)
+      // 3. Convert Base64 to Blob via fetch
       const response = await fetch(`data:image/jpeg;base64,${manipResult.base64}`);
       const blob = await response.blob();
 
       setUploadProgress(0.5);
 
-      // 3. Upload to Supabase Storage
-      const filename = `${profile?.id}/${Date.now()}.jpg`;
-      const { data, error: uploadError } = await supabase.storage
-        .from('avatars')
+      // 4. Upload to Supabase Storage
+      const filename = `${userId}/${Date.now()}.jpg`;
+
+      console.log('[Avatar Storage] Upload Debug:');
+      console.log('Bucket:', bucketName);
+      console.log('Path:', filename);
+
+      const { error: uploadError } = await supabase.storage
+        .from(bucketName)
         .upload(filename, blob, {
           upsert: true,
           contentType: 'image/jpeg',
         });
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        console.error('[Avatar Storage] ERROR:', uploadError);
+        throw uploadError;
+      }
 
       setUploadProgress(0.7);
 
-      // 3. Get Public URL
+      // 5. Get Public URL
       const { data: { publicUrl } } = supabase.storage
-        .from('avatars')
+        .from(bucketName)
         .getPublicUrl(filename);
 
-      // 4. Update Profile
+      // 6. Update Profile
       const { error: updateError } = await supabase
         .from('profiles')
         .update({ avatar: publicUrl, updated_at: new Date().toISOString() })
-        .eq('id', profile?.id);
+        .eq('id', userId);
 
       if (updateError) throw updateError;
 
@@ -170,7 +186,7 @@ export default function EditProfileScreen() {
       await refreshProfile();
       toastRef.current?.show('Profile photo updated', 'success');
     } catch (err: any) {
-      console.error('Upload error:', err);
+      console.error('[Avatar Upload] failed:', err);
       toastRef.current?.show(err.message || 'Failed to upload photo', 'error');
     } finally {
       setUploading(false);

@@ -25,7 +25,7 @@ interface UserProfile {
   name: string | null;
   email: string;
   phone: string | null;
-  role: 'super_admin' | 'admin' | 'support' | 'user';
+  role: 'super_admin' | 'admin' | 'user';
   is_admin: boolean;
   kyc_status: string;
   wallet_balance: number;
@@ -33,7 +33,7 @@ interface UserProfile {
   avatar: string | null;
 }
 
-const ROLES = ['user', 'admin', 'support', 'super_admin'];
+const ROLES = ['user', 'admin', 'super_admin'];
 
 const Users = () => {
   // --- STATE ---

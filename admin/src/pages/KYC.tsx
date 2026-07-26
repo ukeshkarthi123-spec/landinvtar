@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Shield, Check, X, Eye, Clock, AlertCircle, RefreshCw, Filter, Search, Loader2, ShieldCheck } from 'lucide-react';
+import { Check, X, Eye, Clock, AlertCircle, RefreshCw, Search, Loader2, ShieldCheck } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 const KYC = () => {
@@ -18,40 +18,16 @@ const KYC = () => {
     setLoading(true);
     setError(null);
     try {
-      // 1. Fetch KYC documents first
       const { data: kycDocs, error: kycError } = await supabase
         .from('kyc_documents')
-        .select('*')
+        .select(`
+          *,
+          profiles:user_id (id, name, email, phone)
+        `)
         .order('submitted_at', { ascending: false });
 
       if (kycError) throw kycError;
-      if (!kycDocs || kycDocs.length === 0) {
-        setRequests([]);
-        setLoading(false);
-        return;
-      }
-
-      // 2. Fetch profiles separately using the user_ids from kycDocs
-      const userIds = [...new Set(kycDocs.map(doc => doc.user_id))];
-      const { data: profiles, error: profileError } = await supabase
-        .from('profiles')
-        .select('id, name, email, phone')
-        .in('id', userIds);
-
-      if (profileError) throw profileError;
-
-      // 3. Merge datasets in TypeScript
-      const profileMap = (profiles || []).reduce((acc: any, profile) => {
-        acc[profile.id] = profile;
-        return acc;
-      }, {});
-
-      const mergedData = kycDocs.map(doc => ({
-        ...doc,
-        profiles: profileMap[doc.user_id] || null
-      }));
-
-      setRequests(mergedData);
+      setRequests(kycDocs || []);
     } catch (err: any) {
       console.error('Error fetching KYC requests:', err);
       setError(err.message || 'Failed to fetch KYC requests');
@@ -67,28 +43,17 @@ const KYC = () => {
   const handleUpdateStatus = async (kycId: string, status: 'Approved' | 'Rejected', reason?: string) => {
     setIsUpdating(true);
     try {
-      const { data: kycData, error: updateError } = await supabase
+      const { error: updateError } = await supabase
         .from('kyc_documents')
         .update({
           status,
           rejection_reason: reason || null,
-          reviewed_at: new Date().toISOString()
+          reviewed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
         })
-        .eq('id', kycId)
-        .select('user_id')
-        .single();
+        .eq('id', kycId);
 
       if (updateError) throw updateError;
-
-      // Add a notification for the user
-      await supabase.from('notifications').insert({
-        user_id: kycData.user_id,
-        title: status === 'Approved' ? 'KYC Verified!' : 'KYC Rejected',
-        message: status === 'Approved'
-          ? 'Your KYC documents have been successfully verified. You can now start investing.'
-          : `Your KYC was rejected. Reason: ${reason || 'Incomplete documents'}`,
-        type: status === 'Approved' ? 'success' : 'warning'
-      });
 
       setIsModalOpen(false);
       fetchKYCRequests();
@@ -264,10 +229,10 @@ const KYC = () => {
                       <p className="text-lg font-black font-mono tracking-wider">{selectedKyc.aadhaar_number}</p>
                     </div>
                   </div>
-                  {selectedKyc.profiles?.phone && (
+                  {selectedKyc.mobile_number && (
                     <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800">
                       <p className="text-[10px] font-bold text-slate-500 uppercase">Phone Number</p>
-                      <p className="font-bold">{selectedKyc.profiles.phone}</p>
+                      <p className="font-bold">{selectedKyc.mobile_number}</p>
                     </div>
                   )}
                 </div>
@@ -307,8 +272,8 @@ const KYC = () => {
                   <div className="space-y-2">
                     <p className="text-xs font-bold text-slate-500 text-center">User Selfie</p>
                     <div className="h-48 bg-slate-100 dark:bg-slate-800 rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 group relative">
-                      <img src={selectedKyc.selfie_url} className="w-full h-full object-cover hover:scale-110 transition-transform duration-500" alt="Selfie" />
-                      <a href={selectedKyc.selfie_url} target="_blank" rel="noreferrer" className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white font-bold transition-opacity">View Full</a>
+                      <img src={selectedKyc.selfie_file_url} className="w-full h-full object-cover hover:scale-110 transition-transform duration-500" alt="Selfie" />
+                      <a href={selectedKyc.selfie_file_url} target="_blank" rel="noreferrer" className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white font-bold transition-opacity">View Full</a>
                     </div>
                   </div>
                 </div>
@@ -335,6 +300,13 @@ const KYC = () => {
                     {isUpdating ? <Loader2 className="animate-spin" size={20}/> : <ShieldCheck size={20}/>}
                     Approve Verification
                   </button>
+                </div>
+              )}
+
+              {selectedKyc.rejection_reason && (
+                <div className="mt-4 p-4 bg-slate-50 dark:bg-slate-800 rounded-xl">
+                  <p className="text-xs font-bold text-slate-500 uppercase">Remarks</p>
+                  <p className="text-sm text-slate-700 dark:text-slate-300">{selectedKyc.rejection_reason}</p>
                 </div>
               )}
             </div>

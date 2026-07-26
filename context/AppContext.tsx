@@ -7,6 +7,7 @@ import { router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { withTimeout } from '@/lib/api-utils';
 import { Profile } from '@/types/database';
+import { storage } from '@/lib/storage';
 
 interface AppContextType {
   session: Session | null;
@@ -14,10 +15,12 @@ interface AppContextType {
   loading: boolean;
   isAuthenticated: boolean;
   isLocked: boolean;
+  privacyMode: boolean;
   unlockApp: () => Promise<boolean>;
   refreshProfile: () => Promise<void>;
   signOut: () => Promise<void>;
   setWalletBalance: (balance: number) => void;
+  setPrivacyMode: (enabled: boolean) => void;
 }
 
 const AppContext = createContext<AppContextType>({
@@ -26,10 +29,12 @@ const AppContext = createContext<AppContextType>({
   loading: true,
   isAuthenticated: false,
   isLocked: false,
+  privacyMode: false,
   unlockApp: async () => false,
   refreshProfile: async () => {},
   signOut: async () => {},
   setWalletBalance: () => {},
+  setPrivacyMode: () => {},
 });
 
 export function AppProvider({ children }: { children: ReactNode }) {
@@ -37,6 +42,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [isLocked, setIsLocked] = useState(false);
+  const [privacyMode, setPrivacyModeState] = useState(false);
   const initialized = useRef(false);
   const isMounted = useRef(true);
 
@@ -45,6 +51,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (isMounted.current) {
       updater();
     }
+  }, []);
+
+  const setPrivacyMode = useCallback(async (enabled: boolean) => {
+    setPrivacyModeState(enabled);
+    await storage.setItem('privacy_mode', enabled ? 'true' : 'false');
   }, []);
 
   const fetchProfile = useCallback(async (userId: string, retryAttempt = 0): Promise<Profile | null> => {
@@ -145,7 +156,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const unlockApp = useCallback(async () => {
     try {
-      const isBiometricEnabled = await SecureStore.getItemAsync('biometrics_enabled');
+      const isBiometricEnabled = await storage.getItem('biometrics_enabled');
       if (isBiometricEnabled !== 'true') {
         safeUpdate(() => setIsLocked(false));
         return true;
@@ -224,8 +235,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           safeUpdate(() => setSession(currentSession));
           await fetchProfile(currentSession.user.id);
 
+          const pm = await storage.getItem('privacy_mode');
+          safeUpdate(() => setPrivacyModeState(pm === 'true'));
+
           if (Platform.OS !== 'web') {
-            const isBiometricEnabled = await SecureStore.getItemAsync('biometrics_enabled');
+            const isBiometricEnabled = await storage.getItem('biometrics_enabled');
             if (isBiometricEnabled === 'true') {
               safeUpdate(() => setIsLocked(true));
             }
@@ -251,6 +265,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         await fetchProfile(nextSession.user.id);
       } else if (event === 'SIGNED_OUT') {
         safeUpdate(() => setProfile(null));
+      } else if (event === 'PASSWORD_RECOVERY') {
+        router.push('/reset-password');
       }
     });
 
@@ -271,10 +287,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         loading,
         isAuthenticated: !!session,
         isLocked,
+        privacyMode,
         unlockApp,
         refreshProfile,
         signOut,
         setWalletBalance,
+        setPrivacyMode,
       }}
     >
       {children}

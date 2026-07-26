@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, Image, Dimensions, TextInput, Modal,
-  ActivityIndicator, RefreshControl, Linking, Alert,
+  ActivityIndicator, RefreshControl, Linking, Alert, StatusBar,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -50,6 +50,7 @@ export default function PropertyDetailsScreen() {
   const { profile, refreshProfile, setWalletBalance } = useApp();
 
   const riskColors = { Low: colors.success, Medium: colors.warning, High: colors.error };
+  const dynamicStyles = getDynamicStyles(colors, isDark);
 
   const [project, setProject] = useState<LandProject | null>(null);
   const [loading, setLoading] = useState(true);
@@ -365,8 +366,6 @@ export default function PropertyDetailsScreen() {
     setAddAmount('500');
   };
 
-  const dynamicStyles = getDynamicStyles(colors, isDark);
-
   if (loading) {
     return (
       <View style={dynamicStyles.container}>
@@ -400,6 +399,7 @@ export default function PropertyDetailsScreen() {
 
   return (
     <View style={dynamicStyles.container}>
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.emerald} />}

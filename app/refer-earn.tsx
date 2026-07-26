@@ -1,63 +1,51 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  ActivityIndicator, ScrollView, Share, Alert,
+  ActivityIndicator, ScrollView, Share, Alert, StatusBar, Platform
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   Gift, Copy, Share2, Users, TrendingUp, Award,
-  Check, AlertCircle,
+  Check, AlertCircle, ArrowLeft
 } from 'lucide-react-native';
 import { useTheme } from '@/context/ThemeContext';
-import { ScreenHeader } from '@/components/ScreenHeader';
 import { supabase } from '@/lib/supabase';
-import type { Referral } from '@/types/database';
+import { router } from 'expo-router';
 
 export default function ReferEarnScreen() {
   const { colors, isDark } = useTheme();
   const [referralCode, setReferralCode] = useState<string | null>(null);
-  const [referrals, setReferrals] = useState<Referral[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     const { data: existingRef } = await supabase
       .from('referrals')
       .select('*')
-      .order('created_at', { ascending: false });
+      .is('referred_email', null)
+      .limit(1)
+      .maybeSingle();
 
-    if (existingRef && existingRef.length > 0) {
-      const ownRef = existingRef.find(r => r.referred_email === null);
-      if (ownRef) setReferralCode(ownRef.referral_code);
-      setReferrals(existingRef as Referral[]);
-    }
-    setError(null);
+    if (existingRef) setReferralCode(existingRef.referral_code);
+    setLoading(false);
   }, []);
 
-  useEffect(() => {
-    fetchData().finally(() => setLoading(false));
-  }, [fetchData]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   const handleGenerate = async () => {
     setGenerating(true);
-    setError(null);
-    const { data, error: rpcError } = await supabase.rpc('generate_referral_code');
-    if (rpcError) {
-      setError(rpcError.message);
+    const { data, error } = await supabase.rpc('generate_referral_code');
+    if (error) {
+      Alert.alert('Error', error.message);
     } else if (data) {
       setReferralCode(data as string);
-      await fetchData();
     }
     setGenerating(false);
   };
 
   const handleCopy = () => {
     if (!referralCode) return;
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(referralCode);
-    }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -67,229 +55,110 @@ export default function ReferEarnScreen() {
     const shareText = `Join InvestLand - India's trusted fractional land investment platform! Use my referral code: ${referralCode} and get Rs. 500 wallet credit on your first investment.`;
     try {
       await Share.share({ message: shareText });
-    } catch {
-      // User cancelled share
-    }
+    } catch { }
   };
 
-  const completedReferrals = referrals.filter(r => r.status === 'Completed' || r.status === 'Rewarded');
-  const totalRewards = referrals.reduce((s, r) => s + (r.reward_amount ?? 0), 0);
-
-  const dynamicStyles = getDynamicStyles(colors, isDark);
-
   return (
-    <View style={dynamicStyles.container}>
-      <ScreenHeader title="Refer & Earn" />
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" />
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <ArrowLeft size={22} color="#fff" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Refer & Earn</Text>
+      </View>
 
-      {loading ? (
-        <View style={dynamicStyles.centered}>
-          <ActivityIndicator color={colors.emerald} size="large" />
+      <ScrollView contentContainerStyle={styles.scroll}>
+        <LinearGradient colors={['#161B22', '#0F1115']} style={styles.heroCard}>
+            <View style={styles.heroIconBox}>
+                <Gift size={40} color="#00E38C" />
+            </View>
+            <Text style={styles.heroTitle}>Refer & Earn ₹500</Text>
+            <Text style={styles.heroSub}>Invite friends to InvestLand. When they make their first investment, you both earn ₹500 in wallet credits.</Text>
+        </LinearGradient>
+
+        <View style={styles.codeCard}>
+            <Text style={styles.codeLabel}>YOUR REFERRAL CODE</Text>
+            {loading ? <ActivityIndicator color="#00E38C" /> : (
+                referralCode ? (
+                    <View style={styles.codeRow}>
+                        <View style={styles.codeBox}>
+                            <Text style={styles.codeText}>{referralCode}</Text>
+                        </View>
+                        <TouchableOpacity style={styles.copyBtn} onPress={handleCopy}>
+                            {copied ? <Check size={18} color="#00E38C" /> : <Copy size={18} color="#00E38C" />}
+                            <Text style={styles.copyText}>{copied ? 'Copied' : 'Copy'}</Text>
+                        </TouchableOpacity>
+                    </View>
+                ) : (
+                    <TouchableOpacity style={styles.genBtn} onPress={handleGenerate} disabled={generating}>
+                        {generating ? <ActivityIndicator color="#000" /> : <Text style={styles.genBtnText}>Generate Code</Text>}
+                    </TouchableOpacity>
+                )
+            )}
         </View>
-      ) : (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={dynamicStyles.scroll}>
-          <LinearGradient
-            colors={['rgba(22,199,132,0.12)', 'rgba(14,159,110,0.04)']}
-            style={dynamicStyles.heroCard}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          >
-            <Gift size={36} color={colors.emerald} />
-            <Text style={dynamicStyles.heroTitle}>Refer & Earn Rs. 500</Text>
-            <Text style={dynamicStyles.heroSub}>
-              Invite friends to InvestLand. When they make their first investment, you both earn Rs. 500 in wallet credits.
-            </Text>
-          </LinearGradient>
 
-          <View style={dynamicStyles.codeCard}>
-            <Text style={dynamicStyles.codeLabel}>Your Referral Code</Text>
-            {referralCode ? (
-              <View style={dynamicStyles.codeRow}>
-                <View style={dynamicStyles.codeBox}>
-                  <Text style={dynamicStyles.codeText}>{referralCode}</Text>
+        {referralCode && (
+            <TouchableOpacity style={styles.shareBtn} onPress={handleShare}>
+                <LinearGradient colors={['#00E38C', '#00C476']} style={styles.shareBtnGrad}>
+                    <Share2 size={20} color="#000" />
+                    <Text style={styles.shareBtnText}>Share with Friends</Text>
+                </LinearGradient>
+            </TouchableOpacity>
+        )}
+
+        <Text style={styles.sectionTitle}>How it works</Text>
+        <View style={styles.stepsCard}>
+            {[
+                { title: 'Share Code', sub: 'Send your referral code to friends.' },
+                { title: 'Friend Signs Up', sub: 'They register using your code.' },
+                { title: 'Both Earn Rewards', sub: 'Get ₹500 when they invest.' }
+            ].map((step, i) => (
+                <View key={i} style={styles.stepItem}>
+                    <View style={styles.stepNumBox}>
+                        <Text style={styles.stepNum}>{i + 1}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.stepTitle}>{step.title}</Text>
+                        <Text style={styles.stepSub}>{step.sub}</Text>
+                    </View>
                 </View>
-                <TouchableOpacity style={dynamicStyles.copyBtn} onPress={handleCopy}>
-                  {copied ? <Check size={16} color={colors.emerald} /> : <Copy size={16} color={colors.emerald} />}
-                  <Text style={dynamicStyles.copyBtnText}>{copied ? 'Copied!' : 'Copy'}</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <TouchableOpacity
-                style={[dynamicStyles.generateBtn, generating && dynamicStyles.generateBtnDisabled]}
-                onPress={handleGenerate}
-                disabled={generating}
-                activeOpacity={0.85}
-              >
-                {generating ? <ActivityIndicator color="#fff" size="small" /> : <Text style={dynamicStyles.generateBtnText}>Generate Code</Text>}
-              </TouchableOpacity>
-            )}
-            {referralCode && (
-              <TouchableOpacity style={dynamicStyles.shareBtn} onPress={handleShare} activeOpacity={0.85}>
-                <Share2 size={16} color="#fff" />
-                <Text style={dynamicStyles.shareBtnText}>Share with Friends</Text>
-              </TouchableOpacity>
-            )}
-            {error && (
-              <View style={dynamicStyles.errorBox}>
-                <AlertCircle size={14} color={colors.error} />
-                <Text style={dynamicStyles.errorText}>{error}</Text>
-              </View>
-            )}
-          </View>
+            ))}
+        </View>
 
-          <View style={dynamicStyles.statsRow}>
-            <View style={dynamicStyles.statCard}>
-              <Users size={18} color='#60A5FA' />
-              <Text style={dynamicStyles.statVal}>{referrals.filter(r => r.referred_email).length}</Text>
-              <Text style={dynamicStyles.statLbl}>Invited</Text>
-            </View>
-            <View style={dynamicStyles.statCard}>
-              <Check size={18} color={colors.success} />
-              <Text style={dynamicStyles.statVal}>{completedReferrals.length}</Text>
-              <Text style={dynamicStyles.statLbl}>Completed</Text>
-            </View>
-            <View style={dynamicStyles.statCard}>
-              <Award size={18} color='#FBBF24' />
-              <Text style={dynamicStyles.statVal}>Rs. {totalRewards}</Text>
-              <Text style={dynamicStyles.statLbl}>Earned</Text>
-            </View>
-          </View>
-
-          <Text style={dynamicStyles.sectionTitle}>How It Works</Text>
-          <View style={dynamicStyles.stepsCard}>
-            <View style={dynamicStyles.stepRow}>
-              <View style={dynamicStyles.stepNum}><Text style={dynamicStyles.stepNumText}>1</Text></View>
-              <View style={{ flex: 1 }}>
-                <Text style={dynamicStyles.stepTitle}>Share Your Code</Text>
-                <Text style={dynamicStyles.stepDesc}>Send your referral code to friends</Text>
-              </View>
-            </View>
-            <View style={dynamicStyles.stepDivider} />
-            <View style={dynamicStyles.stepRow}>
-              <View style={dynamicStyles.stepNum}><Text style={dynamicStyles.stepNumText}>2</Text></View>
-              <View style={{ flex: 1 }}>
-                <Text style={dynamicStyles.stepTitle}>Friend Signs Up</Text>
-                <Text style={dynamicStyles.stepDesc}>They register using your code</Text>
-              </View>
-            </View>
-            <View style={dynamicStyles.stepDivider} />
-            <View style={dynamicStyles.stepRow}>
-              <View style={dynamicStyles.stepNum}><Text style={dynamicStyles.stepNumText}>3</Text></View>
-              <View style={{ flex: 1 }}>
-                <Text style={dynamicStyles.stepTitle}>Both Earn Rs. 500</Text>
-                <Text style={dynamicStyles.stepDesc}>When they make their first investment</Text>
-              </View>
-            </View>
-          </View>
-
-          {referrals.filter(r => r.referred_email).length > 0 && (
-            <>
-              <Text style={dynamicStyles.sectionTitle}>Referral History</Text>
-              {referrals.filter(r => r.referred_email).map((ref) => (
-                <View key={ref.id} style={dynamicStyles.historyCard}>
-                  <View style={dynamicStyles.historyIcon}>
-                    <TrendingUp size={16} color={colors.emerald} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={dynamicStyles.historyEmail}>{ref.referred_email}</Text>
-                    <Text style={dynamicStyles.historyDate}>{new Date(ref.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</Text>
-                  </View>
-                  <View style={[dynamicStyles.historyStatus, { backgroundColor: (ref.status === 'Rewarded' ? colors.success : ref.status === 'Completed' ? '#60A5FA' : colors.warning) + '22' }]}>
-                    <Text style={[dynamicStyles.historyStatusText, { color: ref.status === 'Rewarded' ? colors.success : ref.status === 'Completed' ? '#60A5FA' : colors.warning }]}>
-                      {ref.status}
-                    </Text>
-                  </View>
-                </View>
-              ))}
-            </>
-          )}
-
-          <View style={{ height: 20 }} />
-        </ScrollView>
-      )}
+        <View style={{ height: 40 }} />
+      </ScrollView>
     </View>
   );
 }
 
-function getDynamicStyles(colors: ReturnType<typeof useTheme>['colors'], isDark: boolean) {
-  return StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.bg },
-    centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-    scroll: { padding: 20 },
-    heroCard: {
-      borderRadius: 20, padding: 24, alignItems: 'center',
-      borderWidth: 1, borderColor: colors.glassBorder, marginBottom: 20,
-    },
-    heroTitle: { color: colors.textPrimary, fontSize: 20, fontWeight: '800', marginTop: 12, marginBottom: 8 },
-    heroSub: { color: colors.textSecondary, fontSize: 13, lineHeight: 20, textAlign: 'center' },
-    codeCard: {
-      backgroundColor: colors.bgCard, borderRadius: 16, padding: 20,
-      borderWidth: 1, borderColor: colors.border, marginBottom: 20, alignItems: 'center',
-    },
-    codeLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '600', marginBottom: 12 },
-    codeRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
-    codeBox: {
-      backgroundColor: colors.emeraldGlow, borderRadius: 12, paddingHorizontal: 24, paddingVertical: 14,
-      borderWidth: 1, borderColor: colors.emerald + '33',
-    },
-    codeText: { color: colors.emerald, fontSize: 20, fontWeight: '900', letterSpacing: 2 },
-    copyBtn: {
-      flexDirection: 'row', alignItems: 'center', gap: 6,
-      backgroundColor: colors.bgCard2, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
-      borderWidth: 1, borderColor: colors.border,
-    },
-    copyBtnText: { color: colors.emerald, fontSize: 13, fontWeight: '700' },
-    generateBtn: {
-      backgroundColor: colors.emerald, borderRadius: 12, paddingVertical: 14,
-      paddingHorizontal: 32, alignItems: 'center',
-    },
-    generateBtnDisabled: { opacity: 0.6 },
-    generateBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
-    shareBtn: {
-      flexDirection: 'row', alignItems: 'center', gap: 8,
-      backgroundColor: colors.emerald, borderRadius: 12, paddingVertical: 12,
-      paddingHorizontal: 24,
-    },
-    shareBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-    errorBox: {
-      flexDirection: 'row', alignItems: 'flex-start', gap: 8,
-      backgroundColor: 'rgba(239,68,68,0.1)', borderRadius: 12, padding: 12,
-      borderWidth: 1, borderColor: colors.error + '33', marginTop: 12, alignSelf: 'stretch',
-    },
-    errorText: { color: colors.error, fontSize: 13, lineHeight: 18, flex: 1 },
-    statsRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
-    statCard: {
-      flex: 1, alignItems: 'center', gap: 6,
-      backgroundColor: colors.bgCard, borderRadius: 14, padding: 14,
-      borderWidth: 1, borderColor: colors.border,
-    },
-    statVal: { color: colors.textPrimary, fontSize: 18, fontWeight: '800' },
-    statLbl: { color: colors.textMuted, fontSize: 11 },
-    sectionTitle: { color: colors.textMuted, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 },
-    stepsCard: {
-      backgroundColor: colors.bgCard, borderRadius: 16, padding: 16,
-      borderWidth: 1, borderColor: colors.border, marginBottom: 20,
-    },
-    stepRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
-    stepNum: {
-      width: 28, height: 28, borderRadius: 14,
-      backgroundColor: colors.emerald, alignItems: 'center', justifyContent: 'center',
-    },
-    stepNumText: { color: '#fff', fontSize: 13, fontWeight: '800' },
-    stepTitle: { color: colors.textPrimary, fontSize: 14, fontWeight: '600' },
-    stepDesc: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
-    stepDivider: { height: 1, backgroundColor: colors.border, marginLeft: 40 },
-    historyCard: {
-      flexDirection: 'row', alignItems: 'center', gap: 12,
-      backgroundColor: colors.bgCard, borderRadius: 14, padding: 14,
-      borderWidth: 1, borderColor: colors.border, marginBottom: 10,
-    },
-    historyIcon: {
-      width: 36, height: 36, borderRadius: 10,
-      backgroundColor: colors.emeraldGlow, alignItems: 'center', justifyContent: 'center',
-    },
-    historyEmail: { color: colors.textPrimary, fontSize: 13, fontWeight: '600' },
-    historyDate: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
-    historyStatus: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
-    historyStatusText: { fontSize: 10, fontWeight: '700' },
-  });
-}
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#0F1115' },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingTop: Platform.OS === 'ios' ? 60 : 40, paddingHorizontal: 24, paddingBottom: 20 },
+  backBtn: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#161B22', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#2D333B' },
+  headerTitle: { color: '#FFFFFF', fontSize: 22, fontWeight: '900', letterSpacing: -0.5 },
+  scroll: { paddingHorizontal: 24, paddingTop: 10 },
+  heroCard: { padding: 32, borderRadius: 28, borderWidth: 1, borderColor: '#2D333B', alignItems: 'center', marginBottom: 24 },
+  heroIconBox: { width: 72, height: 72, borderRadius: 24, backgroundColor: 'rgba(0, 227, 140, 0.1)', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+  heroTitle: { color: '#FFFFFF', fontSize: 24, fontWeight: '900', marginBottom: 8 },
+  heroSub: { color: '#A0A0A0', fontSize: 14, textAlign: 'center', lineHeight: 22 },
+  codeCard: { backgroundColor: '#161B22', borderRadius: 24, padding: 24, borderWidth: 1, borderColor: '#2D333B', alignItems: 'center', marginBottom: 16 },
+  codeLabel: { color: '#666', fontSize: 11, fontWeight: '800', letterSpacing: 1.5, marginBottom: 16 },
+  codeRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },
+  codeBox: { backgroundColor: '#0F1115', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 16, borderWidth: 1, borderColor: '#2D333B' },
+  codeText: { color: '#FFFFFF', fontSize: 22, fontWeight: '900', letterSpacing: 3 },
+  copyBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(0, 227, 140, 0.05)', paddingHorizontal: 16, paddingVertical: 14, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(0, 227, 140, 0.2)' },
+  copyText: { color: '#00E38C', fontSize: 14, fontWeight: '800' },
+  genBtn: { backgroundColor: '#00E38C', paddingHorizontal: 32, paddingVertical: 16, borderRadius: 16 },
+  genBtnText: { color: '#000', fontSize: 15, fontWeight: '800' },
+  shareBtn: { borderRadius: 20, overflow: 'hidden', marginBottom: 32 },
+  shareBtnGrad: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 18, gap: 12 },
+  shareBtnText: { color: '#000', fontSize: 16, fontWeight: '800' },
+  sectionTitle: { color: '#666', fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 16, marginLeft: 4 },
+  stepsCard: { backgroundColor: '#161B22', borderRadius: 24, borderWidth: 1, borderColor: '#2D333B', padding: 20, gap: 24 },
+  stepItem: { flexDirection: 'row', gap: 16, alignItems: 'center' },
+  stepNumBox: { width: 32, height: 32, borderRadius: 10, backgroundColor: 'rgba(0, 227, 140, 0.1)', alignItems: 'center', justifyContent: 'center' },
+  stepNum: { color: '#00E38C', fontSize: 14, fontWeight: '900' },
+  stepTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '700', marginBottom: 2 },
+  stepSub: { color: '#666', fontSize: 12, fontWeight: '600' },
+});

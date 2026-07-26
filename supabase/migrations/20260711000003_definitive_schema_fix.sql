@@ -48,9 +48,6 @@ ALTER TABLE public.bank_accounts ADD CONSTRAINT bank_accounts_user_id_profiles_f
 ALTER TABLE public.upi_ids DROP CONSTRAINT IF EXISTS upi_ids_user_id_fkey;
 ALTER TABLE public.upi_ids ADD CONSTRAINT upi_ids_user_id_profiles_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
 
-ALTER TABLE public.support_tickets DROP CONSTRAINT IF EXISTS support_tickets_user_id_fkey;
-ALTER TABLE public.support_tickets ADD CONSTRAINT support_tickets_user_id_profiles_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
-
 ALTER TABLE public.referrals DROP CONSTRAINT IF EXISTS referrals_user_id_fkey;
 ALTER TABLE public.referrals ADD CONSTRAINT referrals_user_id_profiles_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
 
