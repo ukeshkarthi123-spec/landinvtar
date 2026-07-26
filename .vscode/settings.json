@@ -1,5 +1,11 @@
 {
+<<<<<<< HEAD
     "chat.byokUtilityModelDefault": "copilot",
     "java.configuration.updateBuildConfiguration": "automatic",
     "java.compile.nullAnalysis.mode": "automatic"
 }
+=======
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true
+}
+>>>>>>> 9bbbbb8e9e8e533ae40e59baf3a06dae54205987
