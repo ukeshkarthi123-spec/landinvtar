@@ -16,7 +16,7 @@ import {
   ShieldCheck,
   Loader2
 } from 'lucide-react';
-import { getSupabaseClient, supabase } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { createClient } from '@supabase/supabase-js';
 
 // --- TYPES ---
@@ -111,8 +111,12 @@ const Users = () => {
     try {
       // 1. Create a non-persistent Supabase client to avoid signing out the current admin
       // We use the existing client's URL and Key from the validated instance
-      const supabaseUrl = supabase.supabaseUrl;
-      const supabaseAnonKey = supabase.supabaseKey;
+      const supabaseUrl = (supabase as any).supabaseUrl;
+      const supabaseAnonKey = (supabase as any).supabaseKey;
+
+      if (!supabaseUrl || !supabaseAnonKey) {
+        throw new Error('Supabase configuration is missing in the primary client.');
+      }
 
       const tempClient = createClient(supabaseUrl, supabaseAnonKey, {
         auth: { persistSession: false }
@@ -172,7 +176,7 @@ const Users = () => {
 
     if (filter === 'All') return matchesSearch;
     if (filter === 'Admin') return matchesSearch && (user.is_admin || user.role === 'admin' || user.role === 'super_admin');
-    if (filter === 'Verified') return matchesSearch && user.kyc_status === 'Verified';
+    if (filter === 'Verified') return matchesSearch && (user.kyc_status === 'Verified' || user.kyc_status === 'approved');
     if (filter === 'Pending KYC') return matchesSearch && user.kyc_status === 'Pending';
     return matchesSearch;
   });
@@ -306,19 +310,19 @@ const Users = () => {
                   </td>
                   <td className="px-6 py-4">
                     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider ${
-                      user.kyc_status === 'Verified'
+                      (user.kyc_status === 'Verified' || user.kyc_status === 'approved')
                         ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
                         : user.kyc_status === 'Pending'
                         ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
                         : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400'
                     }`}>
-                      {user.kyc_status === 'Verified' ? <CheckCircle size={10} strokeWidth={3} /> : user.kyc_status === 'Pending' ? <AlertCircle size={10} strokeWidth={3} /> : <XCircle size={10} strokeWidth={3} />}
-                      {user.kyc_status}
+                      {(user.kyc_status === 'Verified' || user.kyc_status === 'approved') ? <CheckCircle size={10} strokeWidth={3} /> : user.kyc_status === 'Pending' ? <AlertCircle size={10} strokeWidth={3} /> : <XCircle size={10} strokeWidth={3} />}
+                      {user.kyc_status === 'approved' ? 'Verified' : user.kyc_status}
                     </span>
                   </td>
                   <td className="px-6 py-4 font-bold text-sm text-slate-900 dark:text-slate-100">
                     ₹{Number(user.wallet_balance || 0).toLocaleString('en-IN')}
-                    {user.kyc_status !== 'Verified' && <p className="text-[9px] text-orange-500 font-black uppercase mt-1">Restricted</p>}
+                    {!(user.kyc_status === 'Verified' || user.kyc_status === 'approved') && <p className="text-[9px] text-orange-500 font-black uppercase mt-1">Restricted</p>}
                   </td>
                   <td className="px-6 py-4 text-xs text-slate-500 font-medium">
                     {new Date(user.created_at).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })}

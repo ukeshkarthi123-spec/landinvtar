@@ -74,8 +74,6 @@ const AdminDashboard = () => {
     totalUsers: 0,
     activeProjects: 0,
     totalProjects: 0,
-    featuredProjects: 0,
-    completedProjects: 0,
     averageRating: 0,
     averageROI: 0,
     totalFundingGoal: 0,
@@ -103,8 +101,8 @@ const AdminDashboard = () => {
       if (kycRes.error) throw kycRes.error;
       if (logsRes.error) throw logsRes.error;
 
-      const projects = projectsRes.data || [];
-      const totalRaised = projects.reduce((sum, p) => sum + Number(p.raised_amount || 0), 0);
+      const projects = (projectsRes.data || []) as any[];
+      const totalRaised = projects.reduce((sum, p) => sum + Number(p.raised_funding || 0), 0);
       const totalGoal = projects.reduce((sum, p) => sum + Number(p.funding_goal || 0), 0);
       const avgROI = projects.length > 0 ? projects.reduce((sum, p) => sum + Number(p.expected_roi || 0), 0) / projects.length : 0;
       const avgRating = projects.length > 0 ? projects.reduce((sum, p) => sum + Number(p.rating || 0), 0) / projects.length : 0;
@@ -122,9 +120,7 @@ const AdminDashboard = () => {
       setStats({
         totalUsers: usersRes.count || 0,
         totalProjects: projects.length,
-        activeProjects: projects.filter(p => p.investment_status === 'Active').length,
-        featuredProjects: projects.filter(p => p.featured).length,
-        completedProjects: projects.filter(p => p.investment_status === 'Completed').length,
+        activeProjects: projects.filter(p => p.is_active === true).length,
         averageRating: avgRating,
         averageROI: avgROI,
         totalFundingGoal: totalGoal,
@@ -167,11 +163,9 @@ const AdminDashboard = () => {
       </div>
 
       {/* Secondary Intelligence Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
          <StatCard title="Avg Rating" value={stats.averageRating.toFixed(1)} icon={Star} color="bg-amber-400" loading={loading} />
          <StatCard title="Target ROI" value={`${stats.averageROI.toFixed(1)}%`} icon={IndianRupee} color="bg-emerald-400" loading={loading} />
-         <StatCard title="Featured" value={stats.featuredProjects} icon={Zap} color="bg-blue-400" loading={loading} />
-         <StatCard title="Completed" value={stats.completedProjects} icon={CheckCircle2} color="bg-slate-400" loading={loading} />
          <StatCard title="Total Nodes" value={stats.totalProjects} icon={MapPin} color="bg-indigo-400" loading={loading} />
       </div>
 

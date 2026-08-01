@@ -1,8 +1,8 @@
 {
   "expo": {
     "name": "InvestLand",
-    "slug": "bolt-expo-nativewind",
-    "version": "1.0.0",
+    "slug": "investland-app",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "splash": {
@@ -10,15 +10,31 @@
       "resizeMode": "contain",
       "backgroundColor": "#0B0F14"
     },
-    "scheme": "myapp",
-    "userInterfaceStyle": "automatic",
+    "scheme": "investland",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": false,
+    "jsEngine": "hermes",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.landinvtar.app"
     },
     "android": {
       "package": "com.landinvtar.app",
-      "versionCode": 6,
+      "versionCode": 7,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "investland"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#0B0F14"
@@ -37,8 +53,6 @@
         "POST_NOTIFICATIONS",
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE",
         "USE_BIOMETRIC",
         "USE_FINGERPRINT"
       ]
@@ -54,6 +68,7 @@
       "expo-notifications",
       "expo-secure-store",
       "expo-file-system",
+      "expo-dev-client",
       [
         "expo-image-picker",
         {
@@ -67,11 +82,9 @@
       "typedRoutes": true
     },
     "extra": {
-      "router": {},
       "eas": {
         "projectId": "61496cb4-5282-456f-9633-f7db5b1dca3d"
       }
-    },
-    "owner": "landinvestar"
+    }
   }
 }

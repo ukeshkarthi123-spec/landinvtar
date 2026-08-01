@@ -222,7 +222,7 @@ export default function PropertyCard({ project, onPress, horizontal = false, isF
             </View>
             <View style={dynamicStyles.ratingBox}>
               <Star size={14} color="#FBBF24" fill="#FBBF24" />
-              <Text style={dynamicStyles.ratingText}>4.8</Text>
+              <Text style={dynamicStyles.ratingText}>{Number(project.rating || 5).toFixed(1)}</Text>
             </View>
           </View>
 
@@ -253,7 +253,7 @@ export default function PropertyCard({ project, onPress, horizontal = false, isF
             <View style={dynamicStyles.statDivider} />
             <View style={dynamicStyles.statItem}>
               <Text style={dynamicStyles.statLabel}>Duration</Text>
-              <Text style={dynamicStyles.statValue}>3-5 Yrs</Text>
+              <Text style={dynamicStyles.statValue}>{project.duration || project.timeline || 'N/A'}</Text>
             </View>
           </View>
 

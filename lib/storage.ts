@@ -1,4 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
 /**
@@ -8,12 +9,12 @@ import { Platform } from 'react-native';
 
 export const storage = {
   /**
-   * Sets a value in secure storage or localStorage on web.
+   * Sets a value in secure storage or AsyncStorage.
    */
   async setItem(key: string, value: string): Promise<void> {
     try {
       if (Platform.OS === 'web') {
-        localStorage.setItem(key, value);
+        await AsyncStorage.setItem(key, value);
       } else {
         await SecureStore.setItemAsync(key, value);
       }
@@ -23,12 +24,12 @@ export const storage = {
   },
 
   /**
-   * Gets a value from secure storage or localStorage on web.
+   * Gets a value from secure storage or AsyncStorage.
    */
   async getItem(key: string): Promise<string | null> {
     try {
       if (Platform.OS === 'web') {
-        return localStorage.getItem(key);
+        return await AsyncStorage.getItem(key);
       } else {
         return await SecureStore.getItemAsync(key);
       }
@@ -39,12 +40,12 @@ export const storage = {
   },
 
   /**
-   * Deletes a value from secure storage or localStorage on web.
+   * Deletes a value from secure storage or AsyncStorage.
    */
   async deleteItem(key: string): Promise<void> {
     try {
       if (Platform.OS === 'web') {
-        localStorage.removeItem(key);
+        await AsyncStorage.removeItem(key);
       } else {
         await SecureStore.deleteItemAsync(key);
       }

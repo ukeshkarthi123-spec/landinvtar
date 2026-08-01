@@ -157,6 +157,26 @@ export default function ExploreScreen() {
     isMounted.current = true;
     loadAll();
 
+    // Live updates for explore projects
+    // We use a unique channel ID per mount to avoid "callback after subscribe" errors
+    // and ensure all .on() calls are chained BEFORE .subscribe()
+    const channelId = `explore-projects-${Math.random().toString(36).slice(2, 9)}`;
+    const channel = supabase
+      .channel(channelId)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'land_projects'
+        },
+        (payload) => {
+          if (!isMounted.current) return;
+          setProjects(prev => prev.map(p => p.id === payload.new.id ? { ...p, ...payload.new } : p));
+        }
+      )
+      .subscribe();
+
     const timer = setInterval(() => {
       Animated.sequence([
         Animated.timing(bannerAnim, { toValue: 0.8, duration: 300, useNativeDriver: true }),
@@ -168,6 +188,7 @@ export default function ExploreScreen() {
     return () => {
       isMounted.current = false;
       clearInterval(timer);
+      supabase.removeChannel(channel);
     };
   }, [loadAll]);
 
@@ -217,7 +238,7 @@ export default function ExploreScreen() {
           </TouchableOpacity>
           <TouchableOpacity style={dynamicStyles.profileAvatar} onPress={() => router.push('/profile')}>
             <Image
-              source={{ uri: profile?.avatar_url || 'https://ui-avatars.com/api/?background=00E38C&color=fff&name=' + (profile?.name || 'User') }}
+              source={{ uri: profile?.avatar_url || profile?.avatar || 'https://ui-avatars.com/api/?background=00E38C&color=fff&name=' + (profile?.name || 'User') }}
               style={dynamicStyles.avatarImage}
             />
           </TouchableOpacity>

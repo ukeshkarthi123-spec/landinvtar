@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import {
     Users, Landmark, Wallet, ShieldCheck, PieChart, Bell,
     ArrowRight, Settings, LogOut, ArrowLeft, TrendingUp, Sparkles,
-    HeadphonesIcon
+    HeadphonesIcon, ChevronRight
 } from 'lucide-react-native';
 import { useTheme } from '@/context/ThemeContext';
 import { supabase } from '@/lib/supabase';

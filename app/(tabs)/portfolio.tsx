@@ -174,12 +174,12 @@ export default function PortfolioScreen() {
     try {
       if (Platform.OS === 'web') {
         const blob = new Blob([statementText], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
+        const url = window.URL.createObjectURL(blob);
+        const a = window.document.createElement('a');
         a.href = url;
         a.download = `InvestLand_Statement_${new Date().toISOString().slice(0, 10)}.txt`;
         a.click();
-        URL.revokeObjectURL(url);
+        window.URL.revokeObjectURL(url);
       } else {
         await Share.share({ message: statementText, title: 'InvestLand Portfolio Statement' });
       }

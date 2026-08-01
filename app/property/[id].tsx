@@ -5,7 +5,7 @@ import {
   ActivityIndicator, RefreshControl, Linking, Alert, StatusBar,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import {
   ArrowLeft, MapPin, TrendingUp, Users, ShieldCheck,
   BadgeCheck, ChevronRight, Star, Check, X, AlertCircle,
@@ -17,8 +17,9 @@ import { useTheme } from '@/context/ThemeContext';
 import { supabase } from '@/lib/supabase';
 import { withTimeout } from '@/lib/api-utils';
 import { useApp } from '@/context/AppContext';
+import { getFreshKycStatus } from '@/lib/kyc-service';
 import type { LandProject, Investment } from '@/types/database';
-import { computeCurrentValue } from '@/types/database';
+import { computeCurrentValue, canInvest } from '@/types/database';
 
 const { width, height } = Dimensions.get('window');
 
@@ -49,10 +50,17 @@ export default function PropertyDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { profile, refreshProfile, setWalletBalance } = useApp();
 
+  useFocusEffect(
+    useCallback(() => {
+      refreshProfile();
+    }, [refreshProfile])
+  );
+
+  const [project, setProject] = useState<LandProject | null>(null);
+
   const riskColors = { Low: colors.success, Medium: colors.warning, High: colors.error };
   const dynamicStyles = getDynamicStyles(colors, isDark);
 
-  const [project, setProject] = useState<LandProject | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -145,11 +153,14 @@ export default function PropertyDetailsScreen() {
     isMounted.current = true;
     setLoading(true);
 
-    Promise.all([fetchProject(), fetchUserInvestment()])
+    console.log('[PropertyDetails] Screen mounted, fetching data. Current KYC Status:', profile?.kyc_status);
+
+    Promise.all([fetchProject(), fetchUserInvestment(), refreshProfile()])
       .catch(err => console.error('Error in data fetch:', err))
       .finally(() => {
         if (isMounted.current) {
           setLoading(false);
+          console.log('[PropertyDetails] Data fetch complete. Fresh KYC Status:', profile?.kyc_status);
         }
       });
 
@@ -163,8 +174,10 @@ export default function PropertyDetailsScreen() {
     if (!id || channelSubscribed.current) return;
     channelSubscribed.current = true;
 
+    // Use unique channel ID to avoid collisions
+    const channelId = `project-${id}-${Math.random().toString(36).slice(2, 9)}`;
     const channel = supabase
-      .channel(`project-${id}`)
+      .channel(channelId)
       .on(
         'postgres_changes',
         {
@@ -211,61 +224,88 @@ export default function PropertyDetailsScreen() {
   };
 
   const handleInvest = async () => {
-    const kycStatus = profile?.kyc_status;
+    try {
+      // 1. Get the current user directly from the session
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        Alert.alert('Error', 'Session expired. Please log in again.');
+        return;
+      }
 
-    if (kycStatus === 'Pending') {
-      Alert.alert(
-        'KYC Under Review',
-        'Your identity verification is currently being processed. You can start investing once approved.',
-        [{ text: 'Check Status', onPress: () => router.push('/kyc') }, { text: 'OK' }]
-      );
-      return;
-    }
+      // 2. Absolute Truth: Use the KYC Service to check both tables
+      const kyc = await getFreshKycStatus(user.id);
 
-    if (kycStatus !== 'Verified') {
-      Alert.alert(
-        'KYC Required',
-        'Complete your KYC verification to continue using financial services.',
-        [{ text: 'Complete KYC', onPress: () => router.push('/kyc') }, { text: 'Cancel', style: 'cancel' }]
-      );
-      return;
-    }
-    const val = parseInt(investAmount || '0');
-    if (!project) return;
-    if (val < project.min_investment) {
-      setInvestError(`Minimum investment is ₹${project.min_investment.toLocaleString('en-IN')}`);
-      return;
-    }
-    if (val > (profile?.wallet_balance ?? 0)) {
-      setInvestError('Insufficient wallet balance. Please add money first.');
-      return;
-    }
+      if (!kyc.isVerified) {
+        if (kyc.isPending) {
+          Alert.alert(
+            'KYC Under Review',
+            'Your identity verification is currently being processed. You can start investing once approved.',
+            [{ text: 'Check Status', onPress: () => router.push('/kyc') }, { text: 'OK' }]
+          );
+        } else {
+          Alert.alert(
+            'KYC Required',
+            'Complete your KYC verification to continue using financial services.',
+            [{ text: 'Complete KYC', onPress: () => router.push('/kyc') }, { text: 'Cancel', style: 'cancel' }]
+          );
+        }
+        return;
+      }
 
-    setInvesting(true);
-    setInvestError(null);
-    const { data, error } = await supabase.rpc('invest_in_project', {
-      p_project_id: project.id,
-      p_amount: val,
-    });
-    if (error) {
-      setInvestError(error.message);
+      // KYC passed, proceed with amount validation
+      // We still need the fresh profile for wallet balance
+      const { data: latestProfile } = await supabase.from('profiles').select('wallet_balance').eq('id', user.id).single();
+
+      const val = parseInt(investAmount || '0');
+      if (!project) return;
+
+      if (val < project.min_investment) {
+        setInvestError(`Minimum investment is ₹${project.min_investment.toLocaleString('en-IN')}`);
+        return;
+      }
+
+      if (val > (latestProfile?.wallet_balance ?? 0)) {
+        setInvestError('Insufficient wallet balance. Please add money first.');
+        return;
+      }
+
+      // Proceed with actual investment
+      setInvesting(true);
+      setInvestError(null);
+
+      const { data: rpcData, error: rpcError } = await supabase.rpc('invest_in_project', {
+        p_project_id: project.id,
+        p_amount: val,
+      });
+
+      if (rpcError) {
+        setInvestError(rpcError.message);
+        setInvesting(false);
+        return;
+      }
+
+      const result = rpcData as { success: boolean; new_balance: number } | null;
+      if (result && typeof result.new_balance === 'number') {
+        setWalletBalance(result.new_balance);
+      } else {
+        await refreshProfile();
+      }
+
       setInvesting(false);
-      return;
+      setShowSuccess(true);
+
+      setTimeout(() => {
+        setShowSuccess(false);
+        setShowInvestModal(false);
+        fetchProject();
+        fetchUserInvestment();
+      }, 2000);
+
+    } catch (err: any) {
+      console.error('[Investment] handleInvest Error:', err);
+      setInvesting(false);
+      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
     }
-    const result = data as { success: boolean; new_balance: number } | null;
-    if (result && typeof result.new_balance === 'number') {
-      setWalletBalance(result.new_balance);
-    } else {
-      await refreshProfile();
-    }
-    setInvesting(false);
-    setShowSuccess(true);
-    setTimeout(() => {
-      setShowSuccess(false);
-      setShowInvestModal(false);
-      fetchProject();
-      fetchUserInvestment();
-    }, 2000);
   };
 
   const isInvestmentLocked = (inv: Investment) => {
@@ -487,7 +527,7 @@ export default function PropertyDetailsScreen() {
               <View style={dynamicStyles.statDivider} />
               <View style={dynamicStyles.statItem}>
                 <Text style={dynamicStyles.statLabel}>Timeline</Text>
-                <Text style={dynamicStyles.statValue}>{project.timeline}</Text>
+                <Text style={dynamicStyles.statValue}>{project.duration || project.timeline || 'N/A'}</Text>
               </View>
               <View style={dynamicStyles.statDivider} />
               <View style={dynamicStyles.statItem}>
@@ -703,7 +743,12 @@ export default function PropertyDetailsScreen() {
             </View>
             <TouchableOpacity
               style={[dynamicStyles.investBtn, project.funding_progress >= 100 && { opacity: 0.7 }]}
-              onPress={() => project.funding_progress < 100 && setShowInvestModal(true)}
+              onPress={async () => {
+                if (project.funding_progress < 100) {
+                  await refreshProfile();
+                  setShowInvestModal(true);
+                }
+              }}
               disabled={project.funding_progress >= 100}
             >
               <LinearGradient

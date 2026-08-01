@@ -17,6 +17,7 @@ import {
   Calendar
 } from 'lucide-react';
 import clsx from 'clsx';
+import type { InvestmentStatus } from '../types/project';
 import InvestmentTable from '../components/InvestmentTable';
 
 const ITEMS_PER_PAGE = 10;

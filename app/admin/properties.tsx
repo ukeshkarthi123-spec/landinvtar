@@ -14,7 +14,28 @@ import { supabase } from '@/lib/supabase';
 import type { LandProject } from '@/types/database';
 import { decode } from 'base64-arraybuffer';
 
-const CATEGORIES = ['Residential', 'Commercial', 'Farm Land', 'Industrial', 'Luxury Villas'];
+const CATEGORIES: LandProject['category'][] = ['Residential', 'Commercial', 'Farm Land', 'Industrial', 'Luxury Villas'];
+
+const ProjectImage = ({ path, style }: { path?: string; style: any }) => {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (!path) return;
+    if (path.startsWith('http')) {
+      if (isMounted) setUrl(path);
+      return;
+    }
+
+    const { data } = supabase.storage.from('project-images').getPublicUrl(path);
+    if (data?.publicUrl && isMounted) setUrl(data.publicUrl);
+
+    return () => { isMounted = false; };
+  }, [path]);
+
+  if (!url) return <View style={[style, { backgroundColor: '#1C222B' }]} />;
+  return <Image source={{ uri: url }} style={style} />;
+};
 
 export default function PropertyManagement() {
   const { colors, isDark } = useTheme();
@@ -22,12 +43,10 @@ export default function PropertyManagement() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProperty, setEditingProperty] = useState<LandProject | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Form State
   const [formData, setFormData] = useState<Partial<LandProject>>({
     name: '',
     location: '',
@@ -106,8 +125,8 @@ export default function PropertyManagement() {
           setSubmitting(true);
           try {
               const bucketName = 'project-images';
-              const fileName = `${Date.now()}.jpg`;
-              const filePath = `projects/${fileName}`;
+              const fileName = `property_${Date.now()}.jpg`;
+              const filePath = fileName;
               const { error: uploadError } = await supabase.storage
                   .from(bucketName)
                   .upload(filePath, decode(asset.base64), {
@@ -115,18 +134,8 @@ export default function PropertyManagement() {
                     upsert: true
                   });
 
-              if (uploadError) {
-                  console.log('Bucket Name:', bucketName);
-                  console.log('Upload Path:', filePath);
-                  console.log('Storage Error:', uploadError);
-                  throw uploadError;
-              }
-
-              const { data: { publicUrl } } = supabase.storage
-                  .from(bucketName)
-                  .getPublicUrl(filePath);
-
-              setFormData({ ...formData, image: publicUrl });
+              if (uploadError) throw uploadError;
+              setFormData({ ...formData, image: filePath });
           } catch (err: any) {
               Alert.alert('Upload Error', err.message);
           } finally {
@@ -145,11 +154,28 @@ export default function PropertyManagement() {
     setSubmitting(true);
     try {
       const progress = Math.min(100, Math.round(((formData.raised_funding || 0) / (formData.total_funding || 1)) * 100));
+
       const payload = {
-        ...formData,
+        name: formData.name,
+        location: formData.location,
+        city: formData.city,
+        state: formData.state,
+        category: formData.category,
+        expected_roi: Number(formData.expected_roi),
+        min_investment: Number(formData.min_investment),
+        total_funding: Number(formData.total_funding),
+        raised_funding: Number(formData.raised_funding),
+        total_area: formData.total_area,
+        timeline: formData.timeline,
+        image: formData.image,
+        is_active: formData.is_active,
+        description: formData.description,
         funding_progress: progress,
         updated_at: new Date().toISOString()
       };
+
+      console.log("LAND PROJECT UPDATE PAYLOAD");
+      console.log(payload);
 
       if (editingProperty) {
         const { error } = await supabase
@@ -175,9 +201,17 @@ export default function PropertyManagement() {
 
   const toggleStatus = async (id: string, currentStatus: boolean) => {
     try {
+      const payload = {
+        is_active: !currentStatus,
+        updated_at: new Date().toISOString()
+      };
+
+      console.log("LAND PROJECT TOGGLE STATUS PAYLOAD");
+      console.log(payload);
+
       const { error } = await supabase
         .from('land_projects')
-        .update({ is_active: !currentStatus, updated_at: new Date().toISOString() })
+        .update(payload)
         .eq('id', id);
 
       if (error) throw error;
@@ -209,7 +243,7 @@ export default function PropertyManagement() {
   const renderProperty = ({ item }: { item: LandProject }) => (
     <View style={[styles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
       <View style={styles.cardTop}>
-        <Image source={{ uri: item.image }} style={styles.image} />
+        <ProjectImage path={item.image} style={styles.image} />
         <View style={styles.badgeContainer}>
            <View style={[styles.statusBadge, { backgroundColor: item.is_active ? colors.emeraldGlow : 'rgba(239,68,68,0.1)' }]}>
              <Text style={[styles.statusText, { color: item.is_active ? colors.success : colors.error }]}>
@@ -320,7 +354,7 @@ export default function PropertyManagement() {
             <ScrollView style={styles.modalForm} showsVerticalScrollIndicator={false}>
               <TouchableOpacity style={styles.imagePicker} onPress={pickImage}>
                 {formData.image ? (
-                  <Image source={{ uri: formData.image }} style={styles.formImage} />
+                  <ProjectImage path={formData.image} style={styles.formImage} />
                 ) : (
                   <View style={styles.imagePlaceholder}>
                     <Camera size={32} color={colors.textMuted} />

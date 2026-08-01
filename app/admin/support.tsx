@@ -29,19 +29,50 @@ export default function AdminSupportScreen() {
   const fetchTickets = useCallback(async () => {
     setLoading(true);
     try {
-      let query = supabase
+      // 1. Fetch tickets first
+      let ticketQuery = supabase
         .from('support_tickets')
-        .select('*, profiles:user_id(name, email)')
+        .select('*')
         .order('created_at', { ascending: false });
 
       if (statusFilter !== 'All') {
-        query = query.eq('status', statusFilter);
+        ticketQuery = ticketQuery.eq('status', statusFilter);
       }
 
-      const { data, error } = await query;
+      const { data: ticketData, error: ticketError } = await ticketQuery;
+      if (ticketError) throw ticketError;
 
-      if (error) throw error;
-      setTickets(data as any[]);
+      if (!ticketData || ticketData.length === 0) {
+        setTickets([]);
+        return;
+      }
+
+      // 2. Extract unique user IDs
+      const userIds = Array.from(new Set(ticketData.map(t => t.user_id)));
+
+      // 3. Fetch profiles for these users
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, name, email')
+        .in('id', userIds);
+
+      if (profileError) {
+        console.error('[AdminSupport] Profile fetch error:', profileError);
+        // We continue anyway, just without profile info
+      }
+
+      // 4. Merge data in JavaScript
+      const profileMap = (profileData || []).reduce((acc: Record<string, { name: string; email: string }>, p: { id: string; name: string; email: string }) => {
+        acc[p.id] = p;
+        return acc;
+      }, {});
+
+      const mergedTickets = ticketData.map(ticket => ({
+        ...ticket,
+        profiles: profileMap[ticket.user_id] || { name: 'Unknown User', email: 'N/A' }
+      }));
+
+      setTickets(mergedTickets as any[]);
     } catch (err: any) {
       console.error('[AdminSupport] Fetch error:', err);
       Alert.alert('Error', 'Failed to load support tickets.');
@@ -70,9 +101,9 @@ export default function AdminSupportScreen() {
 
       if (error) throw error;
 
-      setTickets(prev => prev.map(t => t.id === ticketId ? { ...t, status: newStatus as any } : t));
+      setTickets((prev: SupportTicket[]) => prev.map(t => t.id === ticketId ? { ...t, status: newStatus as SupportTicket['status'] } : t));
       if (selectedTicket?.id === ticketId) {
-        setSelectedTicket(prev => prev ? { ...prev, status: newStatus as any } : null);
+        setSelectedTicket(prev => prev ? { ...prev, status: newStatus as SupportTicket['status'] } : null);
       }
     } catch (err: any) {
       Alert.alert('Error', err.message);

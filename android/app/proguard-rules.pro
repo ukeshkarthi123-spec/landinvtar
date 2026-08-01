@@ -11,4 +11,13 @@
 -keep class com.swmansion.reanimated.** { *; }
 -keep class com.facebook.react.turbomodule.** { *; }
 
+# Razorpay Proguard Rules
+-keep class com.razorpay.** {*;}
+-keepattributes *Annotation*
+-dontwarn com.razorpay.**
+
+# Google Play Services for Payment Authentication
+-keep class com.google.android.gms.wallet.** { *; }
+-keep class com.google.android.gms.common.** { *; }
+
 # Add any project specific keep options here:

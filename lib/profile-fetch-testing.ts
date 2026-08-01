@@ -211,6 +211,7 @@ export async function testRLSInsertPolicy(userId: string, email: string): Promis
       phone: '',
       avatar: '',
       kyc_status: 'Not Started',
+      is_kyc_verified: false,
       wallet_balance: 0,
       role: 'user',
       is_admin: false,

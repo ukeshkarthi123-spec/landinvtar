@@ -11,7 +11,8 @@ const getEnvVar = (key: string): string | undefined => {
   ].find((value): value is string => typeof value === 'string' && value.trim().length > 0);
 };
 
-const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || getEnvVar('SUPABASE_ANON_KEY'))?.trim();
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || getEnvVar('SUPABASE_URL') || 'https://sodzuknsemsqaiakevjp.supabase.co';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || getEnvVar('SUPABASE_ANON_KEY');
 
 if (!supabaseAnonKey) {
   const errorMsg = `
@@ -34,10 +35,14 @@ Ensure VITE_SUPABASE_ANON_KEY is set.
   throw new Error(errorMsg);
 }
 
-const supabase = createClient(
-  'https://sodzuknsemsqaiakevjp.supabase.co',
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
+// Single instance of Supabase client
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+/**
+ * Returns the single instance of Supabase client.
+ * Provided for backward compatibility with components using the legacy getter.
+ */
+export const getSupabaseClient = () => supabase;
 
 export { supabase };
 export default supabase;

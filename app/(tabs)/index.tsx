@@ -47,15 +47,15 @@ export default function HomeScreen() {
     try {
       const [projectsRes, investmentsRes, notifRes] = await Promise.all([
         withTimeout(
-          supabase.from('land_projects').select('*').eq('is_active', true).order('investors_count', { ascending: false }).limit(4),
+          Promise.resolve(supabase.from('land_projects').select('*').eq('is_active', true).order('investors_count', { ascending: false }).limit(4)),
           10000
         ),
         withTimeout(
-          supabase.from('investments').select('id, amount, roi_rate, created_at'),
+          Promise.resolve(supabase.from('investments').select('id, amount, roi_rate, created_at')),
           10000
         ),
         withTimeout(
-          supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('is_read', false),
+          Promise.resolve(supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('is_read', false)),
           10000
         ),
       ]);
@@ -93,7 +93,22 @@ export default function HomeScreen() {
   useEffect(() => {
     isMounted.current = true;
     loadAll();
-    return () => { isMounted.current = false; };
+
+    // Live updates for trending projects
+    // We use a unique channel ID per mount to avoid "callback after subscribe" errors
+    const channelId = `home-projects-${Math.random().toString(36).slice(2, 9)}`;
+    const channel = supabase
+      .channel(channelId)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'land_projects' }, (payload) => {
+        if (!isMounted.current) return;
+        setTrendingProjects(prev => prev.map(p => p.id === payload.new.id ? { ...p, ...payload.new } : p));
+      })
+      .subscribe();
+
+    return () => {
+      isMounted.current = false;
+      supabase.removeChannel(channel);
+    };
   }, [loadAll]);
 
   const stats = useMemo(() => computePortfolioStats(investments), [investments]);
@@ -117,7 +132,7 @@ export default function HomeScreen() {
           </TouchableOpacity>
           <TouchableOpacity style={dynamicStyles.profileAvatar} onPress={() => router.push('/profile')}>
             <Image
-              source={{ uri: profile?.avatar_url || 'https://ui-avatars.com/api/?background=00E38C&color=fff&name=' + (profile?.name || 'User') }}
+              source={{ uri: profile?.avatar_url || profile?.avatar || 'https://ui-avatars.com/api/?background=00E38C&color=fff&name=' + (profile?.name || 'User') }}
               style={dynamicStyles.avatarImage}
             />
           </TouchableOpacity>

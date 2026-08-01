@@ -14,13 +14,48 @@ export default function InvestmentLogs() {
   const fetchInvestments = useCallback(async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      // 1. Fetch investments
+      const { data: invData, error: invError } = await supabase
         .from('investments')
-        .select('*, land_projects:project_id(name, location, category)')
+        .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      setInvestments((data || []) as Investment[]);
+      if (invError) throw invError;
+
+      if (!invData || invData.length === 0) {
+        setInvestments([]);
+        return;
+      }
+
+      // 2. Extract IDs
+      const userIds = Array.from(new Set(invData.map(i => i.user_id)));
+      const projectIds = Array.from(new Set(invData.map(i => i.project_id)));
+
+      // 3. Fetch related data in parallel
+      const [profilesRes, projectsRes] = await Promise.all([
+        supabase.from('profiles').select('id, name, email').in('id', userIds),
+        supabase.from('land_projects').select('id, name, location, city, image, category').in('id', projectIds)
+      ]);
+
+      // 4. Create lookup maps
+      const profileMap = (profilesRes.data || []).reduce((acc: any, p) => {
+        acc[p.id] = p;
+        return acc;
+      }, {});
+
+      const projectMap = (projectsRes.data || []).reduce((acc: any, p) => {
+        acc[p.id] = p;
+        return acc;
+      }, {});
+
+      // 5. Merge
+      const mergedData = invData.map(inv => ({
+        ...inv,
+        profiles: profileMap[inv.user_id] || { name: 'Unknown User', email: 'N/A' },
+        land_projects: projectMap[inv.project_id] || { name: 'Deleted Project', location: 'N/A' }
+      }));
+
+      setInvestments(mergedData as any[]);
     } catch (error) {
       console.error('Error fetching investments:', error);
       Alert.alert('Error', 'Failed to fetch investment logs');

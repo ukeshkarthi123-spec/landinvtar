@@ -28,15 +28,42 @@ const CustomerSupport = () => {
     setLoading(true);
     setError(null);
     try {
-      const { data, error } = await supabase
+      // 1. Fetch tickets first (Robust method to avoid relationship detection errors)
+      const { data: ticketData, error: ticketError } = await supabase
         .from('support_tickets')
-        .select('*, profiles:user_id(name, email)')
+        .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      setTickets(data || []);
+      if (ticketError) throw ticketError;
+      if (!ticketData || ticketData.length === 0) {
+        setTickets([]);
+        setLoading(false);
+        return;
+      }
+
+      // 2. Extract user IDs
+      const userIds = [...new Set(ticketData.map(t => t.user_id))];
+
+      // 3. Fetch profiles separately
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, name, email')
+        .in('id', userIds);
+
+      if (profileError) {
+        console.warn('[CustomerSupport] Profile fetch warning:', profileError);
+      }
+
+      // 4. Merge in memory
+      const profileMap = (profileData || []).reduce((acc: any, p) => ({ ...acc, [p.id]: p }), {});
+      const merged = ticketData.map(ticket => ({
+        ...ticket,
+        profiles: profileMap[ticket.user_id] || { name: 'Unknown User', email: 'N/A' }
+      }));
+
+      setTickets(merged);
     } catch (err: any) {
-      console.error('[CustomerSupport] Fetch Error:', err);
+      console.error('[CustomerSupport] Global Fetch Error:', err);
       setError(err.message || 'Failed to load support tickets.');
     } finally {
       setLoading(false);

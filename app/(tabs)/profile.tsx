@@ -15,7 +15,8 @@ import { useTheme } from '@/context/ThemeContext';
 import { useApp } from '@/context/AppContext';
 import { supabase } from '@/lib/supabase';
 import { withTimeout } from '@/lib/api-utils';
-import { computePortfolioStats } from '@/types/database';
+import { getFreshKycStatus } from '@/lib/kyc-service';
+import { computePortfolioStats, isKycVerified } from '@/types/database';
 import type { Investment } from '@/types/database';
 
 interface MenuItemProps {
@@ -54,8 +55,22 @@ export default function ProfileScreen() {
   const [bankCount, setBankCount] = useState(0);
   const [upiCount, setUpiCount] = useState(0);
   const [referralCode, setReferralCode] = useState<string | null>(null);
+  const [kycStatus, setKycStatus] = useState<string | null>(null);
+  const [isVerified, setIsVerified] = useState(false);
 
   const isMounted = useRef(true);
+
+  // Fetch fresh KYC status
+  const refreshKyc = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const res = await getFreshKycStatus(user.id);
+      if (isMounted.current) {
+        setKycStatus(res.status);
+        setIsVerified(res.isVerified);
+      }
+    }
+  };
 
   // Fetch investments with timeout
   const fetchInvestments = async () => {
@@ -119,6 +134,7 @@ export default function ProfileScreen() {
       fetchInvestments(),
       fetchCounts(),
       refreshProfile(),
+      refreshKyc(),
     ]);
   }, [refreshProfile]);
 
@@ -133,7 +149,7 @@ export default function ProfileScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([refreshProfile(), fetchInvestments(), fetchCounts()]);
+    await Promise.all([refreshProfile(), fetchInvestments(), fetchCounts(), refreshKyc()]);
     setRefreshing(false);
   }, [refreshProfile, fetchInvestments, fetchCounts]);
 
@@ -191,9 +207,9 @@ export default function ProfileScreen() {
             <Text style={dynamicStyles.profilePhone}>{profile?.phone || 'No phone linked'}</Text>
 
             <View style={dynamicStyles.kycRow}>
-              <ShieldCheck size={14} color={profile?.kyc_status === 'Verified' ? colors.emerald : colors.warning} />
-              <Text style={[dynamicStyles.kycText, { color: profile?.kyc_status === 'Verified' ? colors.emerald : colors.warning }]}>
-                KYC {profile?.kyc_status ?? 'Not Started'}
+              <ShieldCheck size={14} color={isVerified ? colors.emerald : colors.warning} />
+              <Text style={[dynamicStyles.kycText, { color: isVerified ? colors.emerald : colors.warning }]}>
+                KYC {isVerified ? 'Verified' : (kycStatus || profile?.kyc_status || 'Not Started')}
               </Text>
               <View style={dynamicStyles.kycDivider} />
               <Star size={14} color={colors.warning} />
@@ -255,7 +271,7 @@ export default function ProfileScreen() {
             <MenuItem
               icon={<UserCheck size={18} color={colors.emerald} />}
               label="KYC Verification"
-              value={profile?.kyc_status ?? 'Not Started'}
+              value={kycStatus || profile?.kyc_status || 'Not Started'}
               color={colors.emeraldGlow}
               onPress={() => router.push('/kyc')}
               colors={colors}

@@ -1,75 +1,80 @@
-<<<<<<< HEAD
-# dependencies
+# Dependencies
 node_modules/
+.pnpm-store/
+.pnpm-debug.log*
 
-# expo
+# Expo / React Native / Metro
 .expo/
+.expo-shared/
 dist/
 web-build/
+build/
+coverage/
 expo-env.d.ts
-
-# native
+*.tsbuildinfo
+*.log
+.metro-health-check*
 *.orig.*
 *.jks
+*.keystore
 *.p8
 *.p12
 *.key
 *.mobileprovision
-
-# metro
-.metro-health-check*
-
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
-
-# macos
-.DS_Store
 *.pem
 
-# local env files
-.env*.local
+# Android
+android/.gradle/
+android/.gradle-home/
+android/app/build/
+android/build/
+android/local.properties
+android/**/build/
+**/google-services.json
+**/google-services.xml
+**/GoogleService-Info.plist
+
+# iOS
+ios/Pods/
+ios/build/
+ios/DerivedData/
+
+# Vite / Next.js / web build outputs
+.next/
+out/
+.vite/
+vite.config.*.timestamp-*
+.cache/
+
+# Supabase
+supabase/.temp/
+supabase/.branches/
+supabase/.env
+supabase/.env.local
+supabase/.env.production
+
+# Environment files
 .env
-
-# typescript
-*.tsbuildinfo
-=======
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
-/node_modules
-/.pnp
-.pnp.js
-
-# testing
-/coverage
-
-# next.js
-/.next/
-/out/
-
-# production
-/build
-
-# misc
-.DS_Store
-*.pem
-
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-
-# env files
-.env*
+.env.*
 !.env.example
+!.env.sample
+!.env.template
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
 
-# vercel
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Misc
 .vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
->>>>>>> 9bbbbb8e9e8e533ae40e59baf3a06dae54205987
+.netlify
+.bolt
+*.sqlite
+*.sqlite3

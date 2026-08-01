@@ -17,18 +17,30 @@ import { getSupabaseRuntimeConfig, supabase } from '@/lib/supabase';
 import { withTimeout } from '@/lib/api-utils';
 import type { WalletTransaction } from '@/types/database';
 
-// Import Razorpay dynamically to prevent issues on Web
-let RazorpayCheckout: any = null;
-if (Platform.OS !== 'web') {
-  try {
-    const rzp = require('react-native-razorpay');
-    RazorpayCheckout = rzp.default || rzp;
-  } catch (e) {
-    console.error('[Wallet] Failed to load react-native-razorpay:', e);
-  }
-}
+// Import Razorpay
+import RazorpayCheckout from 'react-native-razorpay';
+import Constants from 'expo-constants';
 
 const quickAmounts = [500, 1000, 5000, 10000, 25000, 50000];
+
+const getMeaningfulRazorpayError = (err: any): string => {
+  if (!err || typeof err !== 'object') {
+    return 'Payment could not be completed. Please try again.';
+  }
+
+  const errorCode = err.code ?? err.error?.code;
+  const reason = err.reason ?? err.step ?? err.error?.reason ?? err.error?.description ?? err.description;
+
+  if (errorCode === 2 || err.userCancelled || err.status === 'cancelled' || reason === 'payment_cancelled' || err.reason === 'user_cancelled') {
+    return 'Payment cancelled. No charges were made.';
+  }
+
+  if (reason === 'payment_error' || reason === 'payment_authentication' || errorCode === 'BAD_REQUEST_ERROR') {
+    return 'The payment could not be completed. Please check your card details or use another payment method.';
+  }
+
+  return err.description || err.error?.description || err.reason || 'Payment could not be completed. Please try again.';
+};
 
 export default function WalletScreen() {
   const { colors, isDark } = useTheme();
@@ -87,7 +99,7 @@ export default function WalletScreen() {
   // Load Razorpay script for Web
   useEffect(() => {
     if (Platform.OS === 'web' && !razorpayLoaded) {
-      const script = document.createElement('script');
+      const script = window.document.createElement('script');
       script.src = 'https://checkout.razorpay.com/v1/checkout.js';
       script.async = true;
       script.onload = () => {
@@ -95,7 +107,7 @@ export default function WalletScreen() {
         setRazorpayLoaded(true);
       };
       script.onerror = () => console.error('[Razorpay Web] SDK failed to load');
-      document.body.appendChild(script);
+      window.document.body.appendChild(script);
     }
   }, []);
 
@@ -131,23 +143,32 @@ export default function WalletScreen() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ amount: val }),
+        body: JSON.stringify({ amount: Math.floor(val) }),
       });
 
       const orderData = await orderRes.json();
-      console.log('[AddMoney] Order Creation Result:', orderData);
+      console.log('[AddMoney] Order Creation Result:', JSON.stringify(orderData, null, 2));
 
       if (!orderRes.ok) {
         throw new Error(orderData.error || `Order creation failed (${orderRes.status})`);
       }
 
-      if (!orderData.order_id) {
-        throw new Error('Server did not return a valid Order ID.');
+      if (!orderData.order_id || !orderData.key_id) {
+        throw new Error('Server did not return a valid Razorpay order payload.');
+      }
+
+      const checkoutAmount = Number(orderData.amount);
+      if (!Number.isFinite(checkoutAmount) || checkoutAmount <= 0) {
+        throw new Error('Server returned an invalid Razorpay amount.');
+      }
+
+      if (orderData.currency && orderData.currency !== 'INR') {
+        throw new Error('Only INR payments are supported right now.');
       }
 
       // 2. Open Checkout
       console.log('[AddMoney] Step 2: Opening Razorpay Checkout...');
-      await openRazorpayCheckout(orderData.order_id, orderData.key_id, val);
+      await openRazorpayCheckout(orderData.order_id, orderData.key_id, checkoutAmount);
 
     } catch (err: any) {
       console.error('[AddMoney] Flow error:', err);
@@ -158,29 +179,64 @@ export default function WalletScreen() {
     }
   };
 
-  const openRazorpayCheckout = (orderId: string, keyId: string, val: number) => {
+  const openRazorpayCheckout = (orderId: string, keyId: string, amountPaise: number) => {
     return new Promise<void>((resolve, reject) => {
-      // Razorpay prefill data cleaning
-      const prefillPhone = (profile?.phone || '').replace(/\D/g, '').slice(-10);
+      let settled = false;
 
-      const options = {
-        key: keyId,
-        amount: Math.round(val * 100), // Note: Overridden by order_id, but good practice
-        currency: 'INR',
-        name: 'InvestLand',
-        description: 'Wallet Top-up',
-        image: 'https://investland.app/logo.png', // Fallback icon
-        order_id: orderId,
-        prefill: {
-          name: profile?.name || 'Investor',
-          email: profile?.email || '',
-          contact: prefillPhone,
-        },
-        theme: { color: '#00E38C' }, // emerald
-        retry: { enabled: true, max_count: 3 },
+      const finishWithError = (message: string) => {
+        if (settled) return;
+        settled = true;
+        reject(new Error(message));
       };
 
-      console.log('[Razorpay] Checkout Options (Key hidden):', { ...options, key: '***' });
+      const finishWithSuccess = async (res: any) => {
+        if (settled) return;
+        settled = true;
+        try {
+          await verifyPayment(res);
+          resolve();
+        } catch (err) {
+          reject(err);
+        }
+      };
+
+      // 1. Sanitize Prefill Data (Strictly avoid empty strings)
+      // Empty strings trigger BAD_REQUEST_ERROR on Android authentication
+      const rawName = (profile?.name || 'Investor').trim();
+      const rawEmail = (profile?.email || '').trim();
+      const rawPhone = (profile?.phone || '').replace(/\D/g, '');
+
+      // Email must be a valid string with @ or undefined (never "")
+      const prefillEmail = rawEmail.includes('@') ? rawEmail : undefined;
+
+      // Phone must be at least 10 digits or undefined (never "")
+      const prefillPhone = rawPhone.length >= 10 ? rawPhone.slice(-10) : undefined;
+
+      const options = {
+        key: keyId.trim(),
+        amount: Math.floor(amountPaise), // Force integer paise
+        currency: 'INR',
+        name: 'InvestLand',
+        description: `Wallet Top-up: ₹${amountPaise / 100}`,
+        image: 'https://investland.app/logo.png',
+        order_id: orderId,
+        prefill: {
+          name: rawName,
+          email: prefillEmail,
+          contact: prefillPhone,
+        },
+        theme: { color: '#00E38C' },
+        retry: { enabled: true, max_count: 3 },
+        notes: {
+          user_id: profile?.id || 'unknown',
+          env: __DEV__ ? 'development' : 'production'
+        }
+      };
+
+      console.log('[Razorpay] Full Options Payload:', JSON.stringify({
+        ...options,
+        key: options.key.substring(0, 10) + '...'
+      }, null, 2));
 
       if (Platform.OS === 'web') {
         if (!(window as any).Razorpay) {
@@ -190,53 +246,50 @@ export default function WalletScreen() {
         const rzp = new (window as any).Razorpay({
           ...options,
           handler: async (res: any) => {
-            console.log('[Razorpay Web] Payment received:', res);
-            try {
-              await verifyPayment(res);
-              resolve();
-            } catch (err) {
-              reject(err);
-            }
+            console.log('[Razorpay Web] Payment successful:', res.razorpay_payment_id);
+            await finishWithSuccess(res);
           },
           modal: {
             ondismiss: () => {
-              console.log('[Razorpay Web] Checkout modal closed by user');
-              reject(new Error('Payment was cancelled by user.'));
+              console.log('[Razorpay Web] Checkout closed');
+              finishWithError('Payment cancelled. No charges were made.');
             }
           }
         });
         rzp.open();
       } else {
-        if (!RazorpayCheckout) {
-          return reject(new Error('Razorpay module not available in this build.'));
+        // Native (Android/iOS)
+        if (Constants.appOwnership === 'expo') {
+          finishWithError('Razorpay requires a Development Build (npx expo run:android). Expo Go is not supported.');
+          return;
+        }
+
+        if (!RazorpayCheckout || typeof RazorpayCheckout.open !== 'function') {
+          console.error('[Razorpay Native] RazorpayCheckout module is missing');
+          finishWithError('Razorpay native module not found. Rebuild your app.');
+          return;
         }
 
         RazorpayCheckout.open(options)
           .then(async (res: any) => {
-            console.log('[Razorpay Native] Payment success response:', res);
-            try {
-              await verifyPayment(res);
-              resolve();
-            } catch (err) {
-              reject(err);
-            }
+            console.log('[Razorpay Native] Success:', res.razorpay_payment_id);
+            await finishWithSuccess(res);
           })
           .catch((err: any) => {
-            console.warn('[Razorpay Native] Error/Cancel:', err);
+            console.error('[Razorpay Native] Detailed Error:', JSON.stringify(err, null, 2));
 
-            // Standard Razorpay error mapping
+            // Map internal Razorpay error objects to human messages
             let msg = 'Payment failed';
             if (err.code === 2) {
-              msg = 'Payment was cancelled.';
-            } else if (err.description) {
-              msg = err.description;
-            } else if (err.reason) {
-              msg = err.reason;
-            } else if (typeof err === 'string') {
-              msg = err;
+              msg = 'Payment cancelled by user.';
+            } else if (err.error) {
+              const internal = err.error;
+              msg = internal.description || internal.reason || 'Authentication failed. Please check your network.';
+            } else {
+              msg = err.description || err.reason || 'Payment initialization failed.';
             }
 
-            reject(new Error(msg));
+            finishWithError(msg);
           });
       }
     });

@@ -3,11 +3,31 @@ export interface Profile {
   name: string;
   email: string;
   phone: string;
-  avatar: string;
-  kyc_status: 'Not Started' | 'Pending' | 'Verified';
+  avatar?: string | null;
+  avatar_url?: string | null;
+  kyc_status: 'not_started' | 'pending' | 'approved' | 'rejected' | 'Not Started';
+  is_kyc_verified: boolean;
+  kyc_verified?: boolean;
   wallet_balance: number;
   role: 'super_admin' | 'admin' | 'user';
   is_admin: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KycDocument {
+  id: string;
+  user_id: string;
+  pan_number: string;
+  aadhaar_number: string;
+  pan_image: string;
+  aadhaar_front: string;
+  aadhaar_back: string;
+  selfie: string;
+  status: 'pending' | 'approved' | 'rejected';
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  rejection_reason: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -27,6 +47,8 @@ export interface LandProject {
   total_funding: number;
   raised_funding: number;
   investors_count: number;
+  rating: number;
+  duration: string;
   risk_score: 'Low' | 'Medium' | 'High';
   category: 'Residential' | 'Commercial' | 'Farm Land' | 'Industrial' | 'Luxury Villas';
   is_govt_approved: boolean;
@@ -35,7 +57,7 @@ export interface LandProject {
   description: string;
   highlights: string[];
   amenities: { name: string; distance: string; type: string }[];
-  documents: { name: string; status: 'Verified' | 'Pending' }[];
+  documents: any[];
   lat: number | null;
   lng: number | null;
   appreciation_rate: number;
@@ -54,7 +76,6 @@ export interface Investment {
   updated_at: string;
   lock_in_period: number;
   exit_charge_pct: number;
-  // joined from land_projects
   land_projects?: Pick<LandProject, 'id' | 'name' | 'location' | 'image' | 'expected_roi' | 'category'>;
 }
 
@@ -69,21 +90,6 @@ export interface WalletTransaction {
   created_at: string;
 }
 
-export interface PaymentOrder {
-  id: string;
-  user_id: string;
-  razorpay_order_id: string;
-  razorpay_payment_id: string | null;
-  razorpay_signature: string | null;
-  amount: number;
-  currency: string;
-  status: 'created' | 'paid' | 'failed' | 'refunded' | 'attempted';
-  receipt: string | null;
-  notes: Record<string, unknown>;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface Notification {
   id: string;
   user_id: string;
@@ -92,23 +98,6 @@ export interface Notification {
   type: 'success' | 'info' | 'warning';
   is_read: boolean;
   created_at: string;
-}
-
-export interface KycDocument {
-  id: string;
-  user_id: string;
-  pan_number: string | null;
-  pan_file_url: string | null;
-  aadhaar_number: string | null;
-  aadhaar_file_url: string | null;
-  aadhaar_back_file_url: string | null;
-  selfie_file_url: string | null;
-  status: 'Pending' | 'Approved' | 'Rejected';
-  rejection_reason: string | null;
-  submitted_at: string;
-  reviewed_at: string | null;
-  created_at: string;
-  updated_at: string;
 }
 
 export interface BankAccount {
@@ -138,33 +127,13 @@ export interface SupportTicket {
   user_id: string;
   subject: string;
   description: string;
-  category: string;
-  priority: string;
+  category: 'General' | 'Investment' | 'Payment' | 'KYC' | 'Technical';
   status: 'Open' | 'In Progress' | 'Resolved' | 'Closed';
+  priority: 'Low' | 'Medium' | 'High';
+  messages?: { sender: string; message: string; created_at: string }[];
+  profiles?: { name: string; email: string };
   created_at: string;
   updated_at: string;
-  profiles?: {
-    name: string;
-    email: string;
-  };
-}
-
-export interface Referral {
-  id: string;
-  user_id: string;
-  referral_code: string;
-  referred_email: string | null;
-  status: 'Pending' | 'Completed' | 'Rewarded';
-  reward_amount: number;
-  created_at: string;
-}
-
-export interface Favorite {
-  id: string;
-  user_id: string;
-  project_id: string;
-  created_at: string;
-  land_projects?: LandProject;
 }
 
 export interface TaxReport {
@@ -178,23 +147,13 @@ export interface TaxReport {
   created_at: string;
 }
 
-// Computed from investments — not stored in DB
-export interface PortfolioStats {
-  portfolioValue: number;
-  totalInvested: number;
-  totalReturns: number;
-  returnsPercent: number;
-  todayGrowth: number;
-  todayGrowthPercent: number;
-}
-
 export function computeCurrentValue(amount: number, roiRate: number, createdAt: string): number {
   const msPerYear = 365.25 * 24 * 60 * 60 * 1000;
   const yearsElapsed = (Date.now() - new Date(createdAt).getTime()) / msPerYear;
   return amount * (1 + (roiRate / 100) * yearsElapsed);
 }
 
-export function computePortfolioStats(investments: Investment[]): PortfolioStats {
+export function computePortfolioStats(investments: Investment[]): any {
   if (investments.length === 0) {
     return { portfolioValue: 0, totalInvested: 0, totalReturns: 0, returnsPercent: 0, todayGrowth: 0, todayGrowthPercent: 0 };
   }
@@ -203,7 +162,6 @@ export function computePortfolioStats(investments: Investment[]): PortfolioStats
   const totalReturns = portfolioValue - totalInvested;
   const returnsPercent = totalInvested > 0 ? (totalReturns / totalInvested) * 100 : 0;
 
-  // Simulate today's growth as 1-day ROI across all investments
   const avgRoi = investments.reduce((s, i) => s + i.roi_rate, 0) / investments.length;
   const todayGrowthPercent = avgRoi / 365;
   const todayGrowth = portfolioValue * (todayGrowthPercent / 100);
@@ -216,4 +174,22 @@ export function computePortfolioStats(investments: Investment[]): PortfolioStats
     todayGrowth: Math.round(todayGrowth * 100) / 100,
     todayGrowthPercent: Math.round(todayGrowthPercent * 100) / 100,
   };
+}
+
+export function isKycVerified(profile: Profile | null | undefined): boolean {
+  if (!profile) return false;
+  const status = (profile.kyc_status || '').toLowerCase();
+  // Standardize on multiple success variants and boolean flags
+  return (
+    status === 'approved' ||
+    status === 'verified' ||
+    profile.is_kyc_verified === true ||
+    profile.kyc_verified === true ||
+    profile.role === 'admin' ||
+    profile.role === 'super_admin'
+  );
+}
+
+export function canInvest(profile: Profile | null | undefined): boolean {
+  return isKycVerified(profile);
 }

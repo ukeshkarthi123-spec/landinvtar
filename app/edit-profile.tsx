@@ -41,7 +41,14 @@ export default function EditProfileScreen() {
       setName(profile.name);
       setEmail(profile.email);
       setPhone(profile.phone);
-      setAvatar(profile.avatar);
+
+      // If avatar is a path, resolve it
+      if (profile.avatar && !profile.avatar.startsWith('http')) {
+        const { data } = supabase.storage.from('avatars').getPublicUrl(profile.avatar);
+        setAvatar(data.publicUrl);
+      } else {
+        setAvatar(profile.avatar ?? '');
+      }
     }
   }, [profile]);
 
@@ -174,14 +181,15 @@ export default function EditProfileScreen() {
         .from(bucketName)
         .getPublicUrl(filename);
 
-      // 6. Update Profile
+      // 6. Update Profile - store the relative path for security and portability
       const { error: updateError } = await supabase
         .from('profiles')
-        .update({ avatar: publicUrl, updated_at: new Date().toISOString() })
+        .update({ avatar: filename, updated_at: new Date().toISOString() })
         .eq('id', userId);
 
       if (updateError) throw updateError;
 
+      // Local update uses public URL for immediate display
       setAvatar(publicUrl);
       await refreshProfile();
       toastRef.current?.show('Profile photo updated', 'success');

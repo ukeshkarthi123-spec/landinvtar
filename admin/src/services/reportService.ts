@@ -1,5 +1,7 @@
 import { supabase } from '../lib/supabase';
 
+export type { ReportStats, ChartData };
+
 export interface ReportStats {
   totalRevenue: number;
   totalInvestments: number;
@@ -111,7 +113,7 @@ export const reportService = {
     const activeInvestors = activeInvestorsIds.size;
 
     const totalUsers = profiles.length;
-    const verifiedUsers = profiles.filter(p => p.kyc_status === 'Verified').length;
+    const verifiedUsers = profiles.filter(p => p.kyc_status === 'Verified' || p.kyc_status === 'approved').length;
     const conversionRate = totalUsers > 0 ? (verifiedUsers / totalUsers) * 100 : 0;
 
     const roiValues = projects.filter(p => p.is_active).map(p => Number(p.expected_roi || 0));

@@ -4,7 +4,7 @@ import { Session } from '@supabase/supabase-js';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
 import { router } from 'expo-router';
-import { supabase } from '@/lib/supabase';
+import { finalizeSupabaseAuthFromUrl, supabase } from '@/lib/supabase';
 import { withTimeout } from '@/lib/api-utils';
 import { Profile } from '@/types/database';
 import { storage } from '@/lib/storage';
@@ -17,7 +17,7 @@ interface AppContextType {
   isLocked: boolean;
   privacyMode: boolean;
   unlockApp: () => Promise<boolean>;
-  refreshProfile: () => Promise<void>;
+  refreshProfile: () => Promise<Profile | null>;
   signOut: () => Promise<void>;
   setWalletBalance: (balance: number) => void;
   setPrivacyMode: (enabled: boolean) => void;
@@ -31,7 +31,7 @@ const AppContext = createContext<AppContextType>({
   isLocked: false,
   privacyMode: false,
   unlockApp: async () => false,
-  refreshProfile: async () => {},
+  refreshProfile: async () => null,
   signOut: async () => {},
   setWalletBalance: () => {},
   setPrivacyMode: () => {},
@@ -63,7 +63,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const MAX_RETRIES = 2;
     const TIMEOUT_MS = 10000;
-    const REQUIRED_FIELDS = 'id, name, email, phone, avatar, kyc_status, wallet_balance, is_admin, created_at, updated_at';
+    const REQUIRED_FIELDS = 'id, name, email, phone, avatar, kyc_status, is_kyc_verified, wallet_balance, is_admin, created_at, updated_at';
 
     try {
       const result = await withTimeout(
@@ -124,15 +124,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [safeUpdate]);
 
-  const refreshProfile = useCallback(async () => {
+  const refreshProfile = useCallback(async (): Promise<Profile | null> => {
     const { data: { session: currentSession } } = await supabase.auth.getSession();
     const userId = currentSession?.user?.id;
-    if (!userId) return;
+    if (!userId) return null;
 
     const existingProfile = await fetchProfile(userId);
     if (existingProfile === null && isMounted.current) {
-      await autoCreateProfile(userId, currentSession.user.email || '');
+      return await autoCreateProfile(userId, currentSession.user.email || '');
     }
+    return existingProfile;
   }, [fetchProfile, autoCreateProfile]);
 
   const signOut = useCallback(async () => {
@@ -189,35 +190,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const handleUrl = useCallback(async (url: string) => {
     if (!url || !isMounted.current) return;
+    console.log('[DeepLink] Handling URL:', url);
 
     try {
-      const queryString = url.includes('#') ? url.split('#')[1] : url.split('?')[1];
-      if (!queryString) return;
-
-      const params: Record<string, string> = {};
-      queryString.split('&').forEach(pair => {
-        const [key, value] = pair.split('=');
-        if (key && value) params[key] = decodeURIComponent(value);
-      });
-
-      if (params.access_token && params.refresh_token) {
-        const { data } = await supabase.auth.setSession({
-          access_token: params.access_token,
-          refresh_token: params.refresh_token,
-        });
-        if (data.session) {
-          safeUpdate(() => setSession(data.session));
-        }
-      } else if (params.code) {
-        const { data } = await supabase.auth.exchangeCodeForSession(params.code);
-        if (data.session) {
-          safeUpdate(() => setSession(data.session));
-        }
+      const session = await finalizeSupabaseAuthFromUrl(url, '[DeepLink]');
+      if (session) {
+        safeUpdate(() => setSession(session));
+        await fetchProfile(session.user.id);
       }
     } catch (err) {
-      console.error('URL handle error:', err);
+      console.error('[DeepLink] Handle error:', err);
     }
-  }, [safeUpdate]);
+  }, [safeUpdate, fetchProfile]);
 
   useEffect(() => {
     isMounted.current = true;

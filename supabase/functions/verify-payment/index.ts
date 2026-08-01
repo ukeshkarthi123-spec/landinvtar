@@ -48,7 +48,6 @@ Deno.serve(async (req: Request) => {
     }
 
     // 1. Compute HMAC SHA256 Signature for verification
-    // Razorpay verification format: order_id + "|" + payment_id
     const encoder = new TextEncoder();
     const verificationData = `${razorpay_order_id}|${razorpay_payment_id}`;
 
@@ -64,21 +63,18 @@ Deno.serve(async (req: Request) => {
     const hashArray = Array.from(new Uint8Array(signatureBuffer));
     const computedSignature = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
 
-    console.log(`[VerifyPayment] Verification Detail:`);
-    console.log(`- Order: ${razorpay_order_id}`);
-    console.log(`- Payment: ${razorpay_payment_id}`);
-    console.log(`- Expected Signature: ${computedSignature}`);
-    console.log(`- Provided Signature: ${razorpay_signature}`);
-
     if (computedSignature !== razorpay_signature) {
       console.error("[VerifyPayment] Signature mismatch detected!");
 
-      // Log failure in database for audit
-      await supabase.rpc('fail_razorpay_payment', {
-        p_razorpay_order_id: razorpay_order_id,
-        p_error_code: 'SIGNATURE_MISMATCH',
-        p_error_desc: 'Computed signature did not match provided Razorpay signature.'
-      });
+      try {
+        await supabase.rpc('fail_razorpay_payment', {
+          p_razorpay_order_id: razorpay_order_id,
+          p_error_code: 'SIGNATURE_MISMATCH',
+          p_error_desc: 'Computed signature did not match provided Razorpay signature.'
+        });
+      } catch (rpcError: any) {
+        console.error("[VerifyPayment] fail_razorpay_payment RPC failed:", rpcError?.message);
+      }
 
       return new Response(
         JSON.stringify({ error: "Invalid payment signature. Verification failed." }),
@@ -89,7 +85,7 @@ Deno.serve(async (req: Request) => {
     // 2. Fetch original order to get the verified amount
     const { data: orderRecord, error: fetchError } = await supabase
       .from('payment_orders')
-      .select('amount, status')
+      .select('amount, status, user_id')
       .eq('razorpay_order_id', razorpay_order_id)
       .single();
 
@@ -99,16 +95,14 @@ Deno.serve(async (req: Request) => {
     }
 
     if (orderRecord.status === 'paid') {
-      console.log("[VerifyPayment] Order already marked as paid. Duplicate request handled.");
+      console.log("[VerifyPayment] Order already marked as paid.");
       return new Response(
         JSON.stringify({ success: true, message: "Payment already verified." }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // 3. Atomically update Wallet and create Transaction via Database RPC
-    console.log(`[VerifyPayment] Confirming payment of ₹${orderRecord.amount} for user ${user.id}`);
-
+    // 3. Confirm Payment (Update Wallet + Transactions via RPC)
     const { data: rpcResult, error: rpcError } = await supabase.rpc('confirm_razorpay_payment', {
       p_razorpay_order_id: razorpay_order_id,
       p_razorpay_payment_id: razorpay_payment_id,
@@ -117,11 +111,9 @@ Deno.serve(async (req: Request) => {
     });
 
     if (rpcError) {
-      console.error("[VerifyPayment] Database RPC 'confirm_razorpay_payment' failed:", rpcError.message);
+      console.error("[VerifyPayment] confirm_razorpay_payment failed:", rpcError.message);
       throw new Error("Wallet update failed: " + rpcError.message);
     }
-
-    console.log(`[VerifyPayment] Successfully processed. New balance: ₹${rpcResult.new_balance}`);
 
     return new Response(
       JSON.stringify({

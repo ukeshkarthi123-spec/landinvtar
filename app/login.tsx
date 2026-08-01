@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Dimensions,
   TextInput, KeyboardAvoidingView, Platform, ScrollView,
-  ActivityIndicator, Alert, StatusBar, Image
+  ActivityIndicator, Alert, StatusBar, Image, Linking
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -11,18 +11,11 @@ import * as AuthSession from 'expo-auth-session';
 import { Mail, ChevronRight, Eye, EyeOff, ArrowLeft, AlertCircle, Lock, ArrowRight } from 'lucide-react-native';
 import { useTheme } from '@/context/ThemeContext';
 import { useApp } from '@/context/AppContext';
-import { supabase } from '@/lib/supabase';
+import { finalizeSupabaseAuthFromUrl, supabase } from '@/lib/supabase';
 
 WebBrowser.maybeCompleteAuthSession();
 
 const { width } = Dimensions.get('window');
-
-function getQueryParam(url: string, key: string): string | null {
-  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const pattern = new RegExp(`[?#&]${escapedKey}=([^&]*)`);
-  const match = url.match(pattern);
-  return match ? decodeURIComponent(match[1]) : null;
-}
 
 export default function LoginScreen() {
   const { colors, isDark } = useTheme();
@@ -43,31 +36,73 @@ export default function LoginScreen() {
   }, []);
 
   const handleGoogleSignIn = async () => {
+    console.log('[Google Auth] Initializing Google Sign-In flow...');
     setLoading(true);
     setError(null);
     try {
-      const scheme = 'myapp';
+      // 1. Resolve redirect URI
+      const scheme = 'investland';
       const redirectTo = AuthSession.makeRedirectUri({ scheme, path: 'login' });
+      console.log('[Google Auth] Redirect URI:', redirectTo);
+
+      // 2. Start Supabase OAuth session
+      console.log('[Google Auth] Requesting OAuth URL from Supabase...');
       const { data, error: signInError } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo, skipBrowserRedirect: true },
+        options: {
+          redirectTo,
+          skipBrowserRedirect: true,
+          queryParams: {
+            prompt: 'select_account',
+            access_type: 'offline',
+          },
+        },
       });
 
-      if (signInError) throw signInError;
-      if (!data?.url) throw new Error('OAuth URL not returned');
+      if (signInError) {
+        console.error('[Google Auth] Supabase OAuth Error:', signInError);
+        throw signInError;
+      }
+      if (!data?.url) {
+        console.error('[Google Auth] No OAuth URL returned from Supabase');
+        throw new Error('OAuth URL not returned');
+      }
 
-      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+      console.log('[Google Auth] Opening browser session at:', data.url);
+      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo, {
+        showInRecents: true,
+        preferEphemeralSession: false,
+      });
+      console.log('[Google Auth] WebBrowser result type:', result.type);
 
       if (result.type === 'success' && result.url) {
-        const code = getQueryParam(result.url, 'code');
-        if (code) await supabase.auth.exchangeCodeForSession(code);
+        console.log('[Google Auth] Browser completed with callback URL:', result.url);
+        const session = await finalizeSupabaseAuthFromUrl(result.url, '[Google Auth]');
+        console.log('[Google Auth] Session established for user:', session?.user?.email);
         await refreshProfile();
+        if (isMounted.current) {
+          router.replace('/(tabs)');
+        }
+      } else if (result.type === 'cancel') {
+        console.log('[Google Auth] User cancelled the browser session.');
+      } else if (result.type === 'dismiss') {
+        console.log('[Google Auth] Browser session was dismissed.');
+      } else {
+        const fallbackUrl = await Linking.getInitialURL();
+        if (fallbackUrl) {
+          console.log('[Google Auth] Falling back to initial URL:', fallbackUrl);
+          const session = await finalizeSupabaseAuthFromUrl(fallbackUrl, '[Google Auth]');
+          console.log('[Google Auth] Session established from fallback URL for user:', session?.user?.email);
+          await refreshProfile();
+        } else {
+          throw new Error('Google authentication completed without a session');
+        }
       }
     } catch (err: any) {
-      console.error('[Google SignIn Error]', err);
+      console.error('[Google Auth] Fatal Exception:', err);
       setError(err?.message || 'Google sign-in failed');
     } finally {
-      setLoading(false);
+      if (isMounted.current) setLoading(false);
     }
   };
 
@@ -240,8 +275,15 @@ export default function LoginScreen() {
             <View style={dynamicStyles.divider} />
         </View>
 
-        <TouchableOpacity style={dynamicStyles.googleBtn} onPress={handleGoogleSignIn} disabled={loading}>
-            <Image source={{ uri: 'https://cdn1.iconfinder.com/data/icons/google-s-logo/150/Google_Icons-09-512.png' }} style={dynamicStyles.googleIcon} />
+        <TouchableOpacity
+          style={dynamicStyles.googleBtn}
+          onPress={handleGoogleSignIn}
+          disabled={loading}
+        >
+            <Image
+              source={{ uri: 'https://cdn1.iconfinder.com/data/icons/google-s-logo/150/Google_Icons-09-512.png' }}
+              style={dynamicStyles.googleIcon}
+            />
             <Text style={dynamicStyles.googleBtnText}>Continue with Google</Text>
         </TouchableOpacity>
 

@@ -39,9 +39,10 @@ Deno.serve(async (req: Request) => {
 
     // Get Request Body
     const { amount } = await req.json();
-    console.log(`[CreateOrder] User: ${user.email}, Amount: ₹${amount}`);
+    const parsedAmount = Number(amount);
+    console.log(`[CreateOrder] User: ${user.email}, Amount: ₹${parsedAmount}`);
 
-    if (!amount || isNaN(amount) || amount < 100) {
+    if (!Number.isFinite(parsedAmount) || parsedAmount < 100) {
       throw new Error("Minimum investment/deposit amount is ₹100.");
     }
 
@@ -64,11 +65,12 @@ Deno.serve(async (req: Request) => {
 
     // 1. Create order in Razorpay System
     console.log("[CreateOrder] Calling Razorpay API...");
+    const amountInPaise = Math.round(parsedAmount * 100);
     const order = await razorpay.orders.create({
-      amount: Math.round(amount * 100), // convert to paise
+      amount: amountInPaise,
       currency: "INR",
       receipt: receiptId,
-      payment_capture: 1, // Auto capture
+      payment_capture: 1,
     });
 
     console.log(`[CreateOrder] Order ID generated: ${order.id}`);
@@ -79,7 +81,7 @@ Deno.serve(async (req: Request) => {
       .insert({
         user_id: user.id,
         razorpay_order_id: order.id,
-        amount: amount,
+        amount: parsedAmount,
         currency: "INR",
         receipt: receiptId,
         status: "created"
@@ -98,6 +100,7 @@ Deno.serve(async (req: Request) => {
         amount: order.amount,
         currency: order.currency,
         key_id: keyId,
+        receipt: receiptId,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

@@ -30,7 +30,9 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     </div>;
   }
 
-  if (!session || role !== 'admin') {
+  const isAdmin = role === 'admin' || role === 'super_admin';
+
+  if (!session || !isAdmin) {
     return <Navigate to="/login" />;
   }
 
@@ -53,6 +55,7 @@ function App() {
               <Route path="dashboard" element={<AdminDashboard />} />
               <Route path="users" element={<Users />} />
               <Route path="projects" element={<Projects />} />
+              <Route path="projects/new" element={<EditProject />} />
               <Route path="projects/:id" element={<ProjectDetails />} />
               <Route path="projects/:id/edit" element={<EditProject />} />
               <Route path="kyc" element={<KYC />} />

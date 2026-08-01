@@ -33,6 +33,7 @@ import {
 import { reportService } from '../services/reportService';
 import type { ReportStats, ChartData } from '../services/reportService';
 import { exportService } from '../services/exportService';
+import { SectionHeader } from '../components/SectionHeader';
 import clsx from 'clsx';
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
@@ -336,20 +337,5 @@ const Reports = () => {
     </div>
   );
 };
-
-const SectionHeader = ({ title, icon: Icon }: { title: string, icon: any }) => (
-  <div className="flex items-center justify-between mb-8">
-    <div className="flex items-center gap-3">
-      <div className="w-8 h-8 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-500">
-        <Icon size={18} />
-      </div>
-      <h3 className="text-sm font-black uppercase tracking-widest tracking-[3px] text-slate-900 dark:text-white">{title}</h3>
-    </div>
-    <div className="flex gap-1">
-      <div className="w-1.5 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700" />
-      <div className="w-1.5 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700" />
-    </div>
-  </div>
-);
 
 export default Reports;

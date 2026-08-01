@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { SectionHeader } from '../components/SectionHeader';
 import clsx from 'clsx';
 
 // --- TYPES ---
@@ -69,15 +70,6 @@ interface AppSettings {
 type TabKey = 'General' | 'Platform' | 'Investment' | 'KYC' | 'Notifications' | 'Security' | 'Payments' | 'Appearance' | 'Backup' | 'System';
 
 // --- REUSABLE COMPONENTS ---
-
-const SectionHeader = ({ title, icon: Icon }: { title: string, icon: any }) => (
-  <div className="flex items-center gap-3 mb-8">
-    <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
-      <Icon size={20} />
-    </div>
-    <h2 className="text-xl font-black text-slate-900 dark:text-white tracking-tight uppercase tracking-[2px]">{title}</h2>
-  </div>
-);
 
 const FieldGroup = ({ label, children, description, error }: { label: string; children: React.ReactNode; description?: string; error?: string }) => (
   <div className="space-y-2">
