@@ -1,7 +1,7 @@
 {
-  "installCommand": "npm install --legacy-peer-deps",
-  "buildCommand": "npx expo export -p web",
-  "outputDirectory": "dist",
+  "installCommand": "cd admin && npm install --legacy-peer-deps",
+  "buildCommand": "cd admin && npm run build",
+  "outputDirectory": "admin/dist",
   "framework": null,
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
