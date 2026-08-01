@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, Edit2, MapPin, TrendingUp, Info, Star,
-  IndianRupee, Layers, Calendar, Globe, ShieldCheck,
-  FileText, ExternalLink, Video, CheckCircle2, AlertCircle,
+  ArrowLeft, Edit2, MapPin, TrendingUp, Info,
+  IndianRupee, Layers, Calendar, ShieldCheck,
+  FileText, ExternalLink, CheckCircle2, AlertCircle,
   LayoutGrid, Download, Clock, File, Image as ImageIcon
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';

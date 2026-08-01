@@ -4,26 +4,19 @@ import {
   Users as UsersIcon,
   MapPin,
   TrendingUp,
-  Wallet,
-  Clock,
   ShieldCheck,
   ArrowUpRight,
   ArrowDownRight,
   RefreshCw,
-  AlertCircle,
   Activity,
   Zap,
   ChevronRight,
   Terminal,
   IndianRupee,
-  Calendar,
   Star,
-  Layers,
-  CheckCircle2
+  Layers
 } from 'lucide-react';
 import {
-  BarChart,
-  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -130,7 +123,7 @@ const AdminDashboard = () => {
         investmentChart: months.map((m, i) => ({ name: m, amount: invByMonth[i] })).slice(0, new Date().getMonth() + 1)
       });
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || 'Failed to load dashboard data');
     } finally {
       setLoading(false);
     }

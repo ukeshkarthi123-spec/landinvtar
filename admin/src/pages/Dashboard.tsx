@@ -1,11 +1,9 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Users as UsersIcon,
   MapPin,
   TrendingUp,
-  Wallet,
-  Clock,
   ShieldCheck,
   ArrowUpRight,
   ArrowDownRight,
@@ -14,7 +12,8 @@ import {
   Activity,
   Zap,
   ChevronRight,
-  Terminal
+  Terminal,
+  Wallet
 } from 'lucide-react';
 import {
   BarChart,

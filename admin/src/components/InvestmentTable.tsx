@@ -1,5 +1,5 @@
 import React from 'react';
-import { MapPin, Calendar, MoreVertical, Eye, Trash2, Edit2, ExternalLink } from 'lucide-react';
+import { MapPin, Calendar, Eye, Trash2, Edit2 } from 'lucide-react';
 import clsx from 'clsx';
 
 interface InvestmentTableProps {

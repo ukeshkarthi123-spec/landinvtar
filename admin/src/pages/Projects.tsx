@@ -1,12 +1,12 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Plus, Search, MapPin, TrendingUp, Edit2, Trash2, Eye,
+  Plus, Search, MapPin, Edit2, Trash2, Eye,
   RefreshCw, AlertCircle, Filter, ChevronRight, ChevronLeft,
-  Star, LayoutGrid, List, Copy
+  List, LayoutGrid
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import type { LandProject, InvestmentStatus } from '../types/project';
+import type { LandProject } from '../types/project';
 import StarRating from '../components/StarRating';
 import ErrorBoundary from '../components/ErrorBoundary';
 import clsx from 'clsx';

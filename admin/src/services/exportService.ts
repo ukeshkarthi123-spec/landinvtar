@@ -1,5 +1,5 @@
 export const exportService = {
-  downloadCSV(data: any[], filename: string) {
+  downloadCSV(data: Array<Record<string, unknown>>, filename: string) {
     if (!data.length) return;
 
     const headers = Object.keys(data[0]).join(',');
@@ -17,12 +17,12 @@ export const exportService = {
     document.body.removeChild(link);
   },
 
-  downloadExcel(data: any[], filename: string) {
+  downloadExcel(data: Array<Record<string, unknown>>, filename: string) {
     // Basic CSV as XLS (Excel compatible)
     this.downloadCSV(data, filename);
   },
 
-  printPDF(elementId: string) {
+  printPDF(_elementId: string) {
     window.print();
   }
 };

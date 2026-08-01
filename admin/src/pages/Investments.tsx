@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Wallet, Search, MapPin, Calendar, RefreshCw, AlertCircle, FileSpreadsheet, Filter } from 'lucide-react';
+import { Search, MapPin, Calendar, RefreshCw, AlertCircle, Filter, FileSpreadsheet } from 'lucide-react';
 
 const Investments = () => {
   const [investments, setInvestments] = useState<any[]>([]);

@@ -6,7 +6,7 @@ import {
   LayoutGrid, AlertCircle, FileUp, ExternalLink, File
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import type { LandProject, InvestmentStatus } from '../types/project';
+import type { LandProject } from '../types/project';
 import { SectionHeader } from '../components/SectionHeader';
 import StarRating from '../components/StarRating';
 import clsx from 'clsx';

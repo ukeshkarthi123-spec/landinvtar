@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { ArrowDownCircle, Search, Check, X, Clock, Banknote, RefreshCw, AlertCircle, Filter } from 'lucide-react';
+import { Search, Check, X, Clock, RefreshCw, AlertCircle, Filter } from 'lucide-react';
 
 const Withdrawals = () => {
   const [requests, setRequests] = useState<any[]>([]);
@@ -29,7 +29,7 @@ const Withdrawals = () => {
 
       // 2. Fetch profiles separately
       const userIds = [...new Set(txData.map(t => t.user_id))];
-      const { data: profiles, error: profileError } = await supabase
+      const { data: profiles } = await supabase
         .from('profiles')
         .select('id, name, email')
         .in('id', userIds);

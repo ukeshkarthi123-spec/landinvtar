@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
-  Check, X, Eye, Clock, AlertCircle, RefreshCw,
+  Check, X, Eye, Clock, RefreshCw,
   Search, Loader2, User, ExternalLink, ShieldCheck,
-  CreditCard, FileText, Image as ImageIcon
+  Image as ImageIcon
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import clsx from 'clsx';
@@ -65,7 +65,7 @@ const KYC = () => {
       setRequests(merged as any);
     } catch (err: any) {
       console.error('[KYC Audit] Global synchronization failure:', err);
-      setError(err.message);
+      setError(err.message || 'Failed to load KYC records');
     } finally {
       setLoading(false);
     }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   BarChart3,
   Download,
@@ -38,7 +38,18 @@ import clsx from 'clsx';
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
 
-const StatCard = ({ label, value, trend, color, loading }: any) => (
+type ReportType = 'Revenue' | 'Growth' | 'Audit' | 'Projects';
+type ExportRow = Record<string, unknown>;
+
+interface StatCardProps {
+  label: string;
+  value: string | number;
+  trend?: string;
+  color: string;
+  loading?: boolean;
+}
+
+const StatCard = ({ label, value, trend, color, loading }: StatCardProps) => (
   <div className="bg-white dark:bg-slate-900 p-6 rounded-[24px] border border-slate-200 dark:border-slate-800 shadow-sm transition-all hover:shadow-md">
     <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-2">{label}</p>
     {loading ? (
@@ -95,28 +106,27 @@ const Reports = () => {
     fetchAllData();
   }, [fetchAllData]);
 
-  const handleExport = async (type: 'Revenue' | 'Growth' | 'Audit' | 'Projects', format: 'csv' | 'xls' | 'pdf') => {
+  const handleExport = async (type: ReportType, format: 'csv' | 'xls' | 'pdf') => {
     try {
-      let data: any[] = [];
-      let filename = `InvestLand_${type}_${new Date().toISOString().split('T')[0]}`;
+      let exportData: ExportRow[] = [];
+      const filename = `InvestLand_${type}_${new Date().toISOString().split('T')[0]}`;
 
       if (type === 'Projects') {
-        data = await reportService.getProjectPerformance();
+        exportData = await reportService.getProjectPerformance();
       } else if (type === 'Audit') {
         const audit = await reportService.getFinancialAudit();
-        data = [...audit.payments, ...audit.walletTxs];
+        exportData = [...audit.payments, ...audit.walletTxs];
       } else {
-        // Generic fallback data
-        data = stats ? [stats] : [];
+        exportData = stats ? [{ ...stats }] : [];
       }
 
       if (format === 'pdf') {
         exportService.printPDF('reports-container');
       } else {
-        exportService.downloadCSV(data, filename);
+        exportService.downloadCSV(exportData, filename);
       }
-    } catch (e) {
-      alert("Failed to generate report export.");
+    } catch {
+      alert('Failed to generate report export.');
     }
   };
 
@@ -277,7 +287,7 @@ const Reports = () => {
             {reportTypes.map((report) => (
               <div
                 key={report.id}
-                onClick={() => handleExport(report.id as any, 'csv')}
+                onClick={() => handleExport(report.id as ReportType, 'csv')}
                 className="group p-5 bg-slate-50 dark:bg-slate-800/40 rounded-[28px] border border-transparent hover:border-emerald-500 transition-all cursor-pointer flex items-center justify-between"
               >
                 <div className="flex items-center gap-5">

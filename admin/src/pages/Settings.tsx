@@ -1,11 +1,11 @@
-import React, { useEffect, useState, useCallback, memo, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Globe, Shield, Bell, CreditCard, Lock, Palette,
-  Database, Save, Loader2, CheckCircle2, AlertCircle,
-  Monitor, Moon, Sun, X, RefreshCw,
-  Smartphone, Wallet, Download, Upload,
-  Hash, UserCheck, AppWindow
+  Save, Loader2, CheckCircle2, AlertCircle,
+  RefreshCw, Upload, Hash, UserCheck, Globe,
+  Download,
+  Monitor, AppWindow, Wallet, Bell, CreditCard,
+  Lock, Palette, Database, X
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -405,25 +405,25 @@ export default function Settings() {
               <SectionHeader title="Core Identity" icon={Globe} />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-10">
                 <FieldGroup label="Platform Name">
-                  <SettingsInput value={config.platform_name} onChange={e => update({ platform_name: e.target.value })} />
+                  <SettingsInput value={config.platform_name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ platform_name: e.target.value })} />
                 </FieldGroup>
                 <FieldGroup label="Support Hotline">
-                  <SettingsInput value={config.contact_number} onChange={e => update({ contact_number: e.target.value })} />
+                  <SettingsInput value={config.contact_number} onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ contact_number: e.target.value })} />
                 </FieldGroup>
                 <FieldGroup label="Official Email">
-                  <SettingsInput type="email" value={config.support_email} onChange={e => update({ support_email: e.target.value })} />
+                  <SettingsInput type="email" value={config.support_email} onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ support_email: e.target.value })} />
                 </FieldGroup>
                 <FieldGroup label="Company Address">
-                  <SettingsInput value={config.company_address} onChange={e => update({ company_address: e.target.value })} />
+                  <SettingsInput value={config.company_address} onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ company_address: e.target.value })} />
                 </FieldGroup>
                 <FieldGroup label="Local Timezone">
-                  <SettingsSelect value={config.timezone} onChange={e => update({ timezone: e.target.value })}>
+                  <SettingsSelect value={config.timezone} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => update({ timezone: e.target.value })}>
                     <option value="Asia/Kolkata">Asia/Kolkata (GMT +5:30)</option>
                     <option value="UTC">UTC (GMT 0)</option>
                   </SettingsSelect>
                 </FieldGroup>
                 <FieldGroup label="System Currency">
-                  <SettingsSelect value={config.currency} onChange={e => update({ currency: e.target.value })}>
+                  <SettingsSelect value={config.currency} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => update({ currency: e.target.value })}>
                     <option value="INR">INR (₹) Indian Rupee</option>
                     <option value="USD">USD ($) US Dollar</option>
                   </SettingsSelect>
@@ -440,13 +440,13 @@ export default function Settings() {
                     label="Maintenance Mode"
                     description="Block all public access except admins"
                     enabled={config.maintenance_mode}
-                    onChange={v => update({ maintenance_mode: v })}
+                    onChange={(v: boolean) => update({ maintenance_mode: v })}
                   />
                   <FieldGroup label="System Message">
                     <SettingsInput
                       disabled={!config.maintenance_mode}
                       value={config.maintenance_message}
-                      onChange={e => update({ maintenance_message: e.target.value })}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ maintenance_message: e.target.value })}
                       placeholder="Maintenance details..."
                     />
                   </FieldGroup>
@@ -472,22 +472,22 @@ export default function Settings() {
               <SectionHeader title="Financial Nodes" icon={Wallet} />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-10">
                 <FieldGroup label="Baseline ROI (%)" description="Default annual yield for new properties">
-                  <SettingsInput type="number" value={config.default_roi} onChange={e => update({ default_roi: parseFloat(e.target.value) })} />
+                  <SettingsInput type="number" value={config.default_roi} onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ default_roi: parseFloat(e.target.value) })} />
                 </FieldGroup>
                 <FieldGroup label="Referral Reward (%)" description="Incentive for successful network invites">
-                  <SettingsInput type="number" value={config.referral_commission} onChange={e => update({ referral_commission: parseFloat(e.target.value) })} />
+                  <SettingsInput type="number" value={config.referral_commission} onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ referral_commission: parseFloat(e.target.value) })} />
                 </FieldGroup>
                 <FieldGroup label="Minimum Stake (₹)">
-                  <SettingsInput type="number" value={config.min_investment} onChange={e => update({ min_investment: parseInt(e.target.value) })} />
+                  <SettingsInput type="number" value={config.min_investment} onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ min_investment: parseInt(e.target.value) })} />
                 </FieldGroup>
                 <FieldGroup label="Maximum Limit (₹)">
-                  <SettingsInput type="number" value={config.max_investment} onChange={e => update({ max_investment: parseInt(e.target.value) })} />
+                  <SettingsInput type="number" value={config.max_investment} onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ max_investment: parseInt(e.target.value) })} />
                 </FieldGroup>
                 <FieldGroup label="Min Payout (₹)">
-                  <SettingsInput type="number" value={config.min_withdrawal} onChange={e => update({ min_withdrawal: parseInt(e.target.value) })} />
+                  <SettingsInput type="number" value={config.min_withdrawal} onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ min_withdrawal: parseInt(e.target.value) })} />
                 </FieldGroup>
                 <FieldGroup label="Transaction Tax (%)">
-                  <SettingsInput type="number" value={config.withdrawal_fee} onChange={e => update({ withdrawal_fee: parseFloat(e.target.value) })} />
+                  <SettingsInput type="number" value={config.withdrawal_fee} onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ withdrawal_fee: parseFloat(e.target.value) })} />
                 </FieldGroup>
               </div>
             </div>
@@ -497,12 +497,12 @@ export default function Settings() {
             <div className="space-y-12 animate-in fade-in slide-in-from-right-4 duration-500">
               <SectionHeader title="Compliance Matrix" icon={UserCheck} />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <SettingsToggle label="PAN Card Audit" enabled={config.pan_verification} onChange={v => update({ pan_verification: v })} />
-                <SettingsToggle label="Aadhaar Biometric Sync" enabled={config.aadhaar_verification} onChange={v => update({ aadhaar_verification: v })} />
-                <SettingsToggle label="Penny-Drop Validation" enabled={config.bank_verification} onChange={v => update({ bank_verification: v })} />
-                <SettingsToggle label="Face Match (AI)" enabled={config.selfie_verification} onChange={v => update({ selfie_verification: v })} />
-                <SettingsToggle label="Admin Manual Review" enabled={config.manual_review} onChange={v => update({ manual_review: v })} />
-                <SettingsToggle label="Instant Auto-Approval" enabled={config.auto_approval} onChange={v => update({ auto_approval: v })} />
+                <SettingsToggle label="PAN Card Audit" enabled={config.pan_verification} onChange={(v: boolean) => update({ pan_verification: v })} />
+                <SettingsToggle label="Aadhaar Biometric Sync" enabled={config.aadhaar_verification} onChange={(v: boolean) => update({ aadhaar_verification: v })} />
+                <SettingsToggle label="Penny-Drop Validation" enabled={config.bank_verification} onChange={(v: boolean) => update({ bank_verification: v })} />
+                <SettingsToggle label="Face Match (AI)" enabled={config.selfie_verification} onChange={(v: boolean) => update({ selfie_verification: v })} />
+                <SettingsToggle label="Admin Manual Review" enabled={config.manual_review} onChange={(v: boolean) => update({ manual_review: v })} />
+                <SettingsToggle label="Instant Auto-Approval" enabled={config.auto_approval} onChange={(v: boolean) => update({ auto_approval: v })} />
               </div>
             </div>
           )}
@@ -511,11 +511,11 @@ export default function Settings() {
             <div className="space-y-12 animate-in fade-in slide-in-from-right-4 duration-500">
               <SectionHeader title="Alert Ecosystem" icon={Bell} />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <SettingsToggle label="Transactional Email" enabled={config.email_notifications} onChange={v => update({ email_notifications: v })} />
-                <SettingsToggle label="SMS Gateway (Twilio)" enabled={config.sms_notifications} onChange={v => update({ sms_notifications: v })} />
-                <SettingsToggle label="Push Engine (FCM)" enabled={config.push_notifications} onChange={v => update({ push_notifications: v })} />
-                <SettingsToggle label="Administrative Security" enabled={config.admin_alerts} onChange={v => update({ admin_alerts: v })} />
-                <SettingsToggle label="Global User Broadcasts" enabled={config.user_alerts} onChange={v => update({ user_alerts: v })} />
+                <SettingsToggle label="Transactional Email" enabled={config.email_notifications} onChange={(v: boolean) => update({ email_notifications: v })} />
+                <SettingsToggle label="SMS Gateway (Twilio)" enabled={config.sms_notifications} onChange={(v: boolean) => update({ sms_notifications: v })} />
+                <SettingsToggle label="Push Engine (FCM)" enabled={config.push_notifications} onChange={(v: boolean) => update({ push_notifications: v })} />
+                <SettingsToggle label="Administrative Security" enabled={config.admin_alerts} onChange={(v: boolean) => update({ admin_alerts: v })} />
+                <SettingsToggle label="Global User Broadcasts" enabled={config.user_alerts} onChange={(v: boolean) => update({ user_alerts: v })} />
               </div>
             </div>
           )}
@@ -525,13 +525,13 @@ export default function Settings() {
               <SectionHeader title="Vault Protocol" icon={Lock} />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-10">
                 <FieldGroup label="Login Retry Limit" description="Attempts before temporary lockout">
-                  <SettingsInput type="number" value={config.max_login_attempts} onChange={e => update({ max_login_attempts: parseInt(e.target.value) })} />
+                  <SettingsInput type="number" value={config.max_login_attempts} onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ max_login_attempts: parseInt(e.target.value) })} />
                 </FieldGroup>
                 <FieldGroup label="Authorization Window (s)" description="Automatic token invalidation period">
-                  <SettingsInput type="number" value={config.session_timeout} onChange={e => update({ session_timeout: parseInt(e.target.value) })} />
+                  <SettingsInput type="number" value={config.session_timeout} onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ session_timeout: parseInt(e.target.value) })} />
                 </FieldGroup>
                 <FieldGroup label="Password Complexity">
-                  <SettingsSelect value={config.password_policy} onChange={e => update({ password_policy: e.target.value })}>
+                  <SettingsSelect value={config.password_policy} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => update({ password_policy: e.target.value })}>
                     <option value="standard">Standard (8+ characters)</option>
                     <option value="strong">Strong (Alpha-numeric + Special)</option>
                     <option value="strict">Strict (Regular resets required)</option>
@@ -539,15 +539,15 @@ export default function Settings() {
                 </FieldGroup>
               </div>
               <div className="space-y-4 pt-6 border-t border-slate-50 dark:border-slate-800">
-                <SettingsToggle label="Multi-Factor Auth (MFA)" description="Enforce TOTP for all high-value movements" enabled={config.two_factor_auth} onChange={v => update({ two_factor_auth: v })} />
-                <SettingsToggle label="Fingerprint Locking" description="Device-level biometric authorization" enabled={config.device_verification} onChange={v => update({ device_verification: v })} />
+                <SettingsToggle label="Multi-Factor Auth (MFA)" description="Enforce TOTP for all high-value movements" enabled={config.two_factor_auth} onChange={(v: boolean) => update({ two_factor_auth: v })} />
+                <SettingsToggle label="Fingerprint Locking" description="Device-level biometric authorization" enabled={config.device_verification} onChange={(v: boolean) => update({ device_verification: v })} />
               </div>
 
               <div className="pt-10 border-t border-slate-100 dark:border-slate-800">
                 <h4 className="text-sm font-black uppercase text-slate-900 dark:text-white mb-6 tracking-widest">Update Admin Credentials</h4>
                 <form onSubmit={handleChangePassword} className="max-w-md space-y-4">
-                  <SettingsInput required type="password" placeholder="New Strong Password" value={passwords.new} onChange={e => setPasswords({...passwords, new: e.target.value})} />
-                  <SettingsInput required type="password" placeholder="Confirm Password" value={passwords.confirm} onChange={e => setPasswords({...passwords, confirm: e.target.value})} />
+                  <SettingsInput required type="password" placeholder="New Strong Password" value={passwords.new} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPasswords({...passwords, new: e.target.value})} />
+                  <SettingsInput required type="password" placeholder="Confirm Password" value={passwords.confirm} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPasswords({...passwords, confirm: e.target.value})} />
                   <button type="submit" disabled={saving} className="w-full py-4 bg-slate-900 dark:bg-emerald-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest disabled:opacity-50 transition-all hover:bg-black">
                     {saving ? <Loader2 className="animate-spin mx-auto" size={20}/> : 'Update Security Keys'}
                   </button>
@@ -570,16 +570,16 @@ export default function Settings() {
             <div className="space-y-12 animate-in fade-in slide-in-from-right-4 duration-500">
               <SectionHeader title="Gateway Matrix" icon={CreditCard} />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <SettingsToggle label="Razorpay Bridge" enabled={config.razorpay_enabled} onChange={v => update({ razorpay_enabled: v })} />
-                <SettingsToggle label="Unified Payments (UPI)" enabled={config.upi_enabled} onChange={v => update({ upi_enabled: v })} />
-                <SettingsToggle label="Internal Ledger (Wallet)" enabled={config.wallet_enabled} onChange={v => update({ wallet_enabled: v })} />
-                <SettingsToggle label="Direct NEFT/RTGS" enabled={config.bank_transfer_enabled} onChange={v => update({ bank_transfer_enabled: v })} />
-                <SettingsToggle label="Physical Cash Deposit" enabled={config.cash_deposit_enabled} onChange={v => update({ cash_deposit_enabled: v })} />
+                <SettingsToggle label="Razorpay Bridge" enabled={config.razorpay_enabled} onChange={(v: boolean) => update({ razorpay_enabled: v })} />
+                <SettingsToggle label="Unified Payments (UPI)" enabled={config.upi_enabled} onChange={(v: boolean) => update({ upi_enabled: v })} />
+                <SettingsToggle label="Internal Ledger (Wallet)" enabled={config.wallet_enabled} onChange={(v: boolean) => update({ wallet_enabled: v })} />
+                <SettingsToggle label="Direct NEFT/RTGS" enabled={config.bank_transfer_enabled} onChange={(v: boolean) => update({ bank_transfer_enabled: v })} />
+                <SettingsToggle label="Physical Cash Deposit" enabled={config.cash_deposit_enabled} onChange={(v: boolean) => update({ cash_deposit_enabled: v })} />
               </div>
               <div className="p-8 bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800 rounded-[32px] space-y-4">
                 <p className="text-xs font-black text-blue-900 dark:text-blue-400 uppercase tracking-widest">Gateway Configuration</p>
                 <FieldGroup label="Razorpay Key ID">
-                  <SettingsInput value={config.razorpay_key_id} onChange={e => update({ razorpay_key_id: e.target.value })} placeholder="rzp_live_..." className="bg-white dark:bg-slate-900 font-mono text-xs" />
+                  <SettingsInput value={config.razorpay_key_id} onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ razorpay_key_id: e.target.value })} placeholder="rzp_live_..." className="bg-white dark:bg-slate-900 font-mono text-xs" />
                 </FieldGroup>
               </div>
             </div>
@@ -590,20 +590,20 @@ export default function Settings() {
               <SectionHeader title="Visual DNA" icon={Palette} />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-10">
                 <FieldGroup label="Navigation Style">
-                  <SettingsSelect value={config.sidebar_style} onChange={e => update({ sidebar_style: e.target.value })}>
+                  <SettingsSelect value={config.sidebar_style} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => update({ sidebar_style: e.target.value })}>
                     <option value="modern">Modern Minimalist</option>
                     <option value="classic">Vertical Sidebar</option>
                     <option value="compact">Icon Only</option>
                   </SettingsSelect>
                 </FieldGroup>
                 <FieldGroup label="Layout Configuration">
-                  <SettingsSelect value={config.layout_type} onChange={e => update({ layout_type: e.target.value })}>
+                  <SettingsSelect value={config.layout_type} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => update({ layout_type: e.target.value })}>
                     <option value="sidebar">Left Navigation</option>
                     <option value="topbar">Top Navigation</option>
                   </SettingsSelect>
                 </FieldGroup>
                 <FieldGroup label="Typography Scale">
-                  <SettingsSelect value={config.font_size} onChange={e => update({ font_size: e.target.value })}>
+                  <SettingsSelect value={config.font_size} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => update({ font_size: e.target.value })}>
                     <option value="small">Precision (Small)</option>
                     <option value="medium">Balanced (Standard)</option>
                     <option value="large">Accessibility (Large)</option>
@@ -611,8 +611,8 @@ export default function Settings() {
                 </FieldGroup>
                 <FieldGroup label="Primary Accent">
                   <div className="flex gap-4 items-center">
-                    <SettingsInput type="color" value={config.primary_color} onChange={e => update({ primary_color: e.target.value })} className="w-20 h-14 p-1" />
-                    <SettingsInput value={config.primary_color} onChange={e => update({ primary_color: e.target.value })} className="font-mono text-sm uppercase" />
+                    <SettingsInput type="color" value={config.primary_color} onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ primary_color: e.target.value })} className="w-20 h-14 p-1" />
+                    <SettingsInput value={config.primary_color} onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ primary_color: e.target.value })} className="font-mono text-sm uppercase" />
                   </div>
                 </FieldGroup>
               </div>

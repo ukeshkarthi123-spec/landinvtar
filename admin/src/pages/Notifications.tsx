@@ -1,7 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { Bell, Search, Trash2, CheckCircle, Clock, AlertCircle, RefreshCw, X, Send, Loader2 } from 'lucide-react';
-import type { FormEvent } from 'react';
 
 interface Profile {
   id: string;

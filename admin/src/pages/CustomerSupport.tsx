@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import {
   LifeBuoy, Search, RefreshCw, AlertCircle, Filter,
-  X, Clock, CheckCircle2, AlertTriangle, ChevronRight
+  X, ChevronRight
 } from 'lucide-react';
 import clsx from 'clsx';
 
