@@ -16,6 +16,11 @@ const KYC = () => {
   const [searchTerm, setSearchTerm] = useState('');
 
   const [selectedKyc, setSelectedKyc] = useState<(KycDocument & { profiles?: Profile }) | null>(null);
+
+  const getDisplayName = (req: (KycDocument & { profiles?: Profile }) | null | undefined) => {
+    const record = req as (KycDocument & { profiles?: Profile; full_name?: string | null }) | null | undefined;
+    return record?.full_name || record?.profiles?.name || 'Unknown';
+  };
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
 
@@ -96,7 +101,7 @@ const KYC = () => {
   const filtered = requests.filter(req => {
     const s = searchTerm.toLowerCase();
     const matchSearch =
-      req.full_name?.toLowerCase().includes(s) ||
+      getDisplayName(req).toLowerCase().includes(s) ||
       req.pan_number?.toLowerCase().includes(s) ||
       req.aadhaar_number?.toLowerCase().includes(s) ||
       req.profiles?.email?.toLowerCase().includes(s) ||
@@ -176,7 +181,7 @@ const KYC = () => {
                     <div className="flex items-center gap-4">
                       <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-600 group-hover:scale-110 transition-transform"><User size={20} /></div>
                       <div>
-                        <p className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight">{req.full_name || req.profiles?.name || 'Unknown'}</p>
+                        <p className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight">{getDisplayName(req)}</p>
                         <p className="text-[10px] text-slate-400 font-bold">{req.profiles?.email}</p>
                       </div>
                     </div>
@@ -225,7 +230,7 @@ const KYC = () => {
                   <div className="grid grid-cols-2 gap-6 bg-slate-50 dark:bg-slate-800/40 p-8 rounded-[32px] border border-slate-100 dark:border-slate-800">
                     <div className="col-span-2 space-y-1 border-b border-slate-200 dark:border-slate-700 pb-4">
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Full Name</p>
-                        <p className="text-lg font-black dark:text-white uppercase">{selectedKyc.full_name}</p>
+                        <p className="text-lg font-black dark:text-white uppercase">{getDisplayName(selectedKyc)}</p>
                     </div>
                     <div className="pt-4 space-y-1">
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">PAN Number</p>

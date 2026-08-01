@@ -1,7 +1,5 @@
 import { supabase } from '../lib/supabase';
 
-export type { ReportStats, ChartData };
-
 export interface ReportStats {
   totalRevenue: number;
   totalInvestments: number;
